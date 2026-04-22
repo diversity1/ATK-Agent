@@ -1,0 +1,24 @@
+# Environment variables (CRITICAL: Never commit your API keys!)
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Output and data files
+data/outputs/
+*.csv
+*.jsonl
+
+# OS generated files
+.DS_Store
+Thumbs.db
