@@ -23,13 +23,17 @@ st.set_page_config(page_title="ATK-Agent Sentinel", layout="wide", page_icon="�
 # ==========================================
 st.markdown("""
 <style>
-    /* 全局背景与排版 */
+    /* 全局背景与排版 - 强制覆盖所有默认文字颜色 */
     .stApp {
         background-color: #0b1120;
-        color: #f1f5f9;
-        font-family: 'Inter', -apple-system, sans-serif;
     }
     
+    /* 强制所有默认文本、标题、Markdown 为高亮色 */
+    .stApp, .stApp p, .stApp span, .stApp div, .stApp label, .stMarkdown, .stText {
+        color: #f8fafc !important; 
+        font-family: 'Inter', -apple-system, sans-serif;
+    }
+
     /* 隐藏顶部默认白条 */
     header[data-testid="stHeader"] {
         background: transparent;
@@ -40,10 +44,13 @@ st.markdown("""
         background-color: #0f172a;
         border-right: 1px solid #1e293b;
     }
+    [data-testid="stSidebar"] * {
+        color: #f1f5f9 !important;
+    }
     
     /* 标题特效 */
     .hero-title {
-        background: -webkit-linear-gradient(45deg, #3b82f6, #06b6d4, #10b981);
+        background: -webkit-linear-gradient(45deg, #60a5fa, #34d399, #38bdf8);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-size: 3.5rem;
@@ -52,7 +59,7 @@ st.markdown("""
         letter-spacing: -1px;
     }
     .hero-subtitle {
-        color: #94a3b8;
+        color: #cbd5e1 !important;
         font-size: 1.2rem;
         font-weight: 400;
         margin-top: 0px;
@@ -63,94 +70,87 @@ st.markdown("""
 
     /* 自定义数据卡片 (Glassmorphism) */
     .metric-card {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(10px);
-        border: 1px solid #334155;
+        background: rgba(30, 41, 59, 0.95);
+        border: 1px solid #475569;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-        transition: transform 0.3s ease, border-color 0.3s ease;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
         text-align: center;
-    }
-    .metric-card:hover {
-        transform: translateY(-5px);
-        border-color: #3b82f6;
     }
     .metric-title {
         font-size: 0.9rem;
-        color: #94a3b8;
+        color: #e2e8f0 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 600;
+        font-weight: 700;
     }
     .metric-value {
         font-size: 2.5rem;
-        color: #f8fafc;
-        font-weight: 800;
+        color: #ffffff !important;
+        font-weight: 900;
         margin: 10px 0;
-        text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        text-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
     }
-    .metric-delta.positive { color: #10b981; font-weight: bold;}
-    .metric-delta.neutral { color: #cbd5e1; font-weight: bold;}
+    .metric-delta.positive { color: #34d399 !important; font-weight: bold;}
+    .metric-delta.neutral { color: #cbd5e1 !important; font-weight: bold;}
 
     /* 标签设计 */
     .tag-container { margin: 10px 0; display: flex; flex-wrap: wrap; gap: 8px;}
     .cyber-tag {
         background: #1e293b;
-        color: #94a3b8;
+        color: #f8fafc !important;
         padding: 6px 14px;
         border-radius: 6px;
         font-size: 0.85rem;
-        font-weight: 600;
-        border: 1px solid #334155;
+        font-weight: 700;
+        border: 1px solid #64748b;
         font-family: 'Consolas', monospace;
     }
     .cyber-tag.new {
-        background: rgba(16, 185, 129, 0.1);
-        color: #10b981;
-        border: 1px solid #10b981;
-        box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+        background: rgba(16, 185, 129, 0.2);
+        color: #34d399 !important;
+        border: 1px solid #34d399;
+        box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
     }
     .cyber-tag.original {
-        color: #e2e8f0;
-        border: 1px solid #64748b;
+        background: #334155;
+        color: #f1f5f9 !important;
     }
 
     /* 终端风格的文本框 */
     .stTextArea textarea {
-        background-color: #020617;
-        color: #34d399;
-        font-family: 'Consolas', monospace;
-        border: 1px solid #1e293b;
+        background-color: #020617 !important;
+        color: #10b981 !important;
+        font-family: 'Consolas', monospace !important;
+        border: 1px solid #3b82f6 !important;
         border-radius: 8px;
-    }
-    .stTextArea textarea:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 1px #3b82f6;
+        font-size: 1rem !important;
     }
     
     /* Expander 美化 */
     .streamlit-expanderHeader {
-        background-color: #1e293b !important;
+        background-color: #334155 !important;
         border-radius: 8px;
-        color: #f8fafc !important;
-        font-weight: 600 !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+    
+    /* DataFrame 表格文字颜色 */
+    [data-testid="stDataFrame"] {
+        color: #ffffff !important;
     }
 
     /* 按钮美化 */
     .stButton>button {
-        background: linear-gradient(90deg, #2563eb, #3b82f6);
-        color: white;
+        background: linear-gradient(90deg, #2563eb, #1d4ed8) !important;
+        color: #ffffff !important;
         border: none;
         border-radius: 8px;
-        font-weight: 700;
+        font-weight: 800 !important;
         padding: 0.5rem 1rem;
-        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
-        transition: all 0.3s ease;
     }
     .stButton>button:hover {
-        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.5);
-        transform: translateY(-2px);
+        background: linear-gradient(90deg, #3b82f6, #2563eb) !important;
     }
 </style>
 """, unsafe_allow_html=True)
