@@ -21,8 +21,24 @@ class AttackRetrieverEngine:
         
         for tid in self.keys:
             doc = self.attack_index[tid]
-            # Construct rich text for indexing
-            text = f"{tid} {doc.get('name', '')} {doc.get('description', '')}"
+            # Build rich semantic text for indexing:
+            # technique name repeated for emphasis + full description + tactic context
+            name        = doc.get("name", "")
+            desc        = doc.get("description", "")
+            tactics     = " ".join(doc.get("tactics", []))
+            platforms   = " ".join(doc.get("platforms", []))
+            data_srcs   = " ".join(doc.get("data_sources", []))
+
+            # Truncate description to avoid embedding dimension issues
+            desc_trunc = desc[:600] if desc else ""
+
+            text = (
+                f"{tid} {name}. "
+                f"Tactics: {tactics}. "
+                f"Platforms: {platforms}. "
+                f"{data_srcs} "
+                f"{desc_trunc}"
+            )
             self.corpus_texts.append(text)
             
         self.bm25 = None
