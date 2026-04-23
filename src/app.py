@@ -23,49 +23,11 @@ st.set_page_config(page_title="ATK-Agent Sentinel", layout="wide", page_icon="�
 # ==========================================
 st.markdown("""
 <style>
-    /* 全局背景与排版 - 强制覆盖所有默认文字颜色 */
-    .stApp {
-        background-color: #0b1120;
-    }
-    
-    /* 强制所有默认文本、标题、Markdown 为高亮色 */
-    .stApp, .stApp p, .stApp span, .stApp div, .stApp label, .stMarkdown, .stText {
-        color: #f8fafc; 
-        font-family: 'Inter', -apple-system, sans-serif;
-    }
-
     /* 隐藏顶部默认白条 */
     header[data-testid="stHeader"] {
         background: transparent;
     }
     
-    /* 侧边栏样式 */
-    [data-testid="stSidebar"] {
-        background-color: #0f172a;
-        border-right: 1px solid #1e293b;
-    }
-    [data-testid="stSidebar"] * {
-        color: #f1f5f9;
-    }
-    
-    /* 修复输入框、数字框等组件的背景色，防止白底白字 */
-    [data-baseweb="input"] {
-        background-color: #1e293b !important;
-        border: 1px solid #334155 !important;
-        border-radius: 6px !important;
-    }
-    [data-baseweb="input"] input {
-        color: #f8fafc !important;
-        background-color: transparent !important;
-    }
-    
-    /* 修复代码块 (Code Block) 的背景色 */
-    pre, code {
-        background-color: #020617 !important;
-        color: #10b981 !important;
-        border: 1px solid #1e293b !important;
-    }
-
     /* 标题特效 */
     .hero-title {
         background: -webkit-linear-gradient(45deg, #60a5fa, #34d399, #38bdf8);
@@ -77,7 +39,7 @@ st.markdown("""
         letter-spacing: -1px;
     }
     .hero-subtitle {
-        color: #cbd5e1 !important;
+        color: #cbd5e1;
         font-size: 1.2rem;
         font-weight: 400;
         margin-top: 0px;
@@ -88,35 +50,35 @@ st.markdown("""
 
     /* 自定义数据卡片 (Glassmorphism) */
     .metric-card {
-        background: rgba(30, 41, 59, 0.95);
+        background: rgba(30, 41, 59, 0.4);
         border: 1px solid #475569;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
         text-align: center;
     }
     .metric-title {
         font-size: 0.9rem;
-        color: #e2e8f0 !important;
+        color: #e2e8f0;
         text-transform: uppercase;
         letter-spacing: 1px;
         font-weight: 700;
     }
     .metric-value {
         font-size: 2.5rem;
-        color: #ffffff !important;
+        color: #ffffff;
         font-weight: 900;
         margin: 10px 0;
-        text-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+        text-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
     }
-    .metric-delta.positive { color: #34d399 !important; font-weight: bold;}
-    .metric-delta.neutral { color: #cbd5e1 !important; font-weight: bold;}
+    .metric-delta.positive { color: #34d399; font-weight: bold;}
+    .metric-delta.neutral { color: #cbd5e1; font-weight: bold;}
 
     /* 标签设计 */
     .tag-container { margin: 10px 0; display: flex; flex-wrap: wrap; gap: 8px;}
     .cyber-tag {
         background: #1e293b;
-        color: #f8fafc !important;
+        color: #f8fafc;
         padding: 6px 14px;
         border-radius: 6px;
         font-size: 0.85rem;
@@ -126,38 +88,20 @@ st.markdown("""
     }
     .cyber-tag.new {
         background: rgba(16, 185, 129, 0.2);
-        color: #34d399 !important;
+        color: #34d399;
         border: 1px solid #34d399;
-        box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
     }
     .cyber-tag.original {
         background: #334155;
-        color: #f1f5f9 !important;
+        color: #f1f5f9;
     }
 
     /* 终端风格的文本框 */
     .stTextArea textarea {
-        background-color: #020617 !important;
-        color: #10b981 !important;
         font-family: 'Consolas', monospace !important;
-        border: 1px solid #3b82f6 !important;
-        border-radius: 8px;
         font-size: 1rem !important;
     }
     
-    /* Expander 美化 */
-    .streamlit-expanderHeader {
-        background-color: #334155 !important;
-        border-radius: 8px;
-        color: #ffffff !important;
-        font-weight: 700 !important;
-    }
-    
-    /* DataFrame 表格文字颜色 */
-    [data-testid="stDataFrame"] {
-        color: #ffffff !important;
-    }
-
     /* 按钮美化 */
     .stButton>button {
         background: linear-gradient(90deg, #2563eb, #1d4ed8) !important;
@@ -209,7 +153,6 @@ def save_feedback(state, accepted: bool):
 # 🎛️ 侧边栏设置
 # ==========================================
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/MITRE_Corporation_logo.svg/1024px-MITRE_Corporation_logo.svg.png", width=150)
     st.markdown("### 🛡️ **ATK-Agent Core**")
     st.markdown("SOC Automation Platform")
     st.divider()
@@ -223,7 +166,9 @@ with st.sidebar:
     st.caption("Adjusts precision vs recall tradeoff for the RAG alignment.")
     
     st.divider()
-    st.markdown("```System Status:\n🟢 Hybrid Index Loaded\n🟢 LLM Gateway Active\n🟢 CoT Module Ready```")
+    st.success("🟢 Hybrid Index Loaded")
+    st.success("🟢 LLM Gateway Active")
+    st.success("🟢 CoT Module Ready")
 
 # ==========================================
 # 🚀 头部 Hero 区域
