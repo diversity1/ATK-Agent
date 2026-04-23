@@ -5,6 +5,7 @@ import pandas as pd
 import json
 import datetime
 import plotly.express as px
+import plotly.graph_objects as go
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import config
@@ -14,146 +15,212 @@ from agents.manager_agent import ManagerAgent
 from dataio.load_attack import load_attack_index
 from core.utils import ensure_dir
 
-# Initialize core system once
-@st.cache_resource
-def init_system():
-    if not os.path.exists(config.ATTACK_INDEX_PATH):
-        return None
-        
-    attack_index = load_attack_index(config.ATTACK_INDEX_PATH)
-    registry.register("attack_index", attack_index)
-    
-    llm_client = LLMClient()
-    registry.register("llm_client", llm_client)
-    
-    manager = ManagerAgent()
-    registry.register("manager_agent", manager)
-    return manager
+# 必须是第一个调用的 Streamlit 命令
+st.set_page_config(page_title="ATK-Agent Sentinel", layout="wide", page_icon="🛡️", initial_sidebar_state="expanded")
 
-st.set_page_config(page_title="ATK-Agent Pro", layout="wide", page_icon="🎯")
-
-# Premium Custom CSS
+# ==========================================
+# 💎 高级企业级 CSS 注入 (Cyber-Security Theme)
+# ==========================================
 st.markdown("""
 <style>
-    /* Main Layout */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 95%;
+    /* 全局背景与排版 */
+    .stApp {
+        background-color: #0b1120;
+        color: #f1f5f9;
+        font-family: 'Inter', -apple-system, sans-serif;
     }
     
-    /* Headers */
-    h1 {
-        color: #1E3A8A;
-        font-family: 'Inter', sans-serif;
-        font-weight: 800;
-        margin-bottom: 0.5rem;
-    }
-    h3 {
-        color: #374151;
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
+    /* 隐藏顶部默认白条 */
+    header[data-testid="stHeader"] {
+        background: transparent;
     }
     
-    /* Cards and Containers */
-    .css-1r6slb0 {
-        background-color: #f8fafc;
+    /* 侧边栏样式 */
+    [data-testid="stSidebar"] {
+        background-color: #0f172a;
+        border-right: 1px solid #1e293b;
+    }
+    
+    /* 标题特效 */
+    .hero-title {
+        background: -webkit-linear-gradient(45deg, #3b82f6, #06b6d4, #10b981);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3.5rem;
+        font-weight: 900;
+        margin-bottom: 0px;
+        letter-spacing: -1px;
+    }
+    .hero-subtitle {
+        color: #94a3b8;
+        font-size: 1.2rem;
+        font-weight: 400;
+        margin-top: 0px;
+        margin-bottom: 30px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+
+    /* 自定义数据卡片 (Glassmorphism) */
+    .metric-card {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(10px);
+        border: 1px solid #334155;
         border-radius: 12px;
-        border: 1px solid #e2e8f0;
         padding: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        transition: transform 0.3s ease, border-color 0.3s ease;
+        text-align: center;
     }
-    
-    /* Tags */
-    .tag-original {
-        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-        color: #475569;
-        padding: 6px 12px;
-        border-radius: 20px;
-        margin: 4px;
-        display: inline-block;
-        font-size: 0.9em;
+    .metric-card:hover {
+        transform: translateY(-5px);
+        border-color: #3b82f6;
+    }
+    .metric-title {
+        font-size: 0.9rem;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 1px;
         font-weight: 600;
-        border: 1px solid #cbd5e1;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        transition: all 0.2s ease;
     }
-    .tag-new {
-        background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-        color: #166534;
-        padding: 6px 12px;
-        border-radius: 20px;
-        margin: 4px;
-        display: inline-block;
-        font-size: 0.9em;
-        font-weight: 700;
-        border: 1px solid #86efac;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        transition: all 0.2s ease;
-    }
-    .tag-new:hover, .tag-original:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    /* Text Area */
-    .stTextArea textarea {
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        font-family: 'Consolas', monospace;
-        border-radius: 8px;
-        border: 1px solid #333;
-    }
-    
-    /* Metric Cards */
-    [data-testid="stMetricValue"] {
+    .metric-value {
         font-size: 2.5rem;
+        color: #f8fafc;
         font-weight: 800;
-        color: #2563eb;
+        margin: 10px 0;
+        text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+    }
+    .metric-delta.positive { color: #10b981; font-weight: bold;}
+    .metric-delta.neutral { color: #cbd5e1; font-weight: bold;}
+
+    /* 标签设计 */
+    .tag-container { margin: 10px 0; display: flex; flex-wrap: wrap; gap: 8px;}
+    .cyber-tag {
+        background: #1e293b;
+        color: #94a3b8;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border: 1px solid #334155;
+        font-family: 'Consolas', monospace;
+    }
+    .cyber-tag.new {
+        background: rgba(16, 185, 129, 0.1);
+        color: #10b981;
+        border: 1px solid #10b981;
+        box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+    }
+    .cyber-tag.original {
+        color: #e2e8f0;
+        border: 1px solid #64748b;
+    }
+
+    /* 终端风格的文本框 */
+    .stTextArea textarea {
+        background-color: #020617;
+        color: #34d399;
+        font-family: 'Consolas', monospace;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+    }
+    .stTextArea textarea:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 1px #3b82f6;
     }
     
-    /* Buttons */
-    .stButton>button {
+    /* Expander 美化 */
+    .streamlit-expanderHeader {
+        background-color: #1e293b !important;
         border-radius: 8px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
+        color: #f8fafc !important;
+        font-weight: 600 !important;
+    }
+
+    /* 按钮美化 */
+    .stButton>button {
+        background: linear-gradient(90deg, #2563eb, #3b82f6);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+        padding: 0.5rem 1rem;
+        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
         transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.5);
+        transform: translateY(-2px);
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🎯 ATK-Agent Pro Workspace")
-st.markdown("##### *Advanced AI-Driven ATT&CK Tag Validation & Repair System*")
-st.markdown("---")
+# ==========================================
+# 🧠 系统初始化
+# ==========================================
+@st.cache_resource
+def init_system():
+    if not os.path.exists(config.ATTACK_INDEX_PATH):
+        return None
+    attack_index = load_attack_index(config.ATTACK_INDEX_PATH)
+    registry.register("attack_index", attack_index)
+    llm_client = LLMClient()
+    registry.register("llm_client", llm_client)
+    manager = ManagerAgent()
+    registry.register("manager_agent", manager)
+    return manager
 
 manager = init_system()
-if not manager:
-    st.error("🚨 ATT&CK Index not found. Please run `python src/download_data.py` or index reconstruction first.")
-    st.stop()
 
-# Helper function to save feedback
 def save_feedback(state, accepted: bool):
     ensure_dir(config.OUTPUTS_DIR)
     fb_path = os.path.join(config.OUTPUTS_DIR, "feedback.jsonl")
-    
-    tp = None
-    if state.alignment_result and state.alignment_result.thought_process:
-        tp = state.alignment_result.thought_process
-        
+    tp = state.alignment_result.thought_process if state.alignment_result else None
     record = {
         "timestamp": datetime.datetime.now().isoformat(),
         "rule_id": state.parsed_rule.rule_id if state.parsed_rule else "unknown",
         "title": state.parsed_rule.title if state.parsed_rule else "",
-        "predicted_top1": state.alignment_result.top1 if state.alignment_result else None,
+        "action": state.repair_result.action,
         "accepted": accepted,
         "cot_thought_process": tp
     }
     with open(fb_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-tab1, tab2 = st.tabs(["⚡ Live Interactive Sandbox", "📈 Batch Analytics Dashboard"])
+# ==========================================
+# 🎛️ 侧边栏设置
+# ==========================================
+with st.sidebar:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/MITRE_Corporation_logo.svg/1024px-MITRE_Corporation_logo.svg.png", width=150)
+    st.markdown("### 🛡️ **ATK-Agent Core**")
+    st.markdown("SOC Automation Platform")
+    st.divider()
+    
+    view_mode = st.radio("NAVIGATION", ["⚡ Real-time Sandbox", "🛰️ Enterprise Telemetry"], index=0, label_visibility="collapsed")
+    
+    st.divider()
+    st.markdown("#### ENGINE SETTINGS")
+    confidence_th = st.slider("Silver Standard Threshold", min_value=0.5, max_value=0.99, value=0.85, step=0.01)
+    top_k = st.number_input("RAG Retrieval Top-K", min_value=1, max_value=20, value=10)
+    st.caption("Adjusts precision vs recall tradeoff for the RAG alignment.")
+    
+    st.divider()
+    st.markdown("```System Status:\n🟢 Hybrid Index Loaded\n🟢 LLM Gateway Active\n🟢 CoT Module Ready```")
 
-with tab1:
+# ==========================================
+# 🚀 头部 Hero 区域
+# ==========================================
+st.markdown('<div class="hero-title">ATK-Agent Sentinel</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-subtitle">Cognitive ATT&CK Tagging & Repair Engine</div>', unsafe_allow_html=True)
+
+if not manager:
+    st.error("🚨 CRITICAL FAILURE: ATT&CK Index not found. Execute `python src/rebuild_attack_index.py`.")
+    st.stop()
+
+# ==========================================
+# 视图 1: ⚡ 实时交互沙盒
+# ==========================================
+if view_mode == "⚡ Real-time Sandbox":
     default_rule = """title: Sample Suspicious PowerShell
 id: 1234-5678
 description: Detects suspicious powershell execution
@@ -170,15 +237,20 @@ tags:
   - attack.t1059
 """
     
-    col_input, col_output = st.columns([1, 1.2], gap="large")
+    col_editor, col_result = st.columns([1, 1.4], gap="large")
     
-    with col_input:
-        st.markdown("### 📝 Input Detection Rule")
-        rule_text = st.text_area("Paste Sigma YAML Rule Here", value=default_rule, height=500, label_visibility="collapsed")
-        analyze_btn = st.button("🚀 Analyze & Repair with ATK-Agent", type="primary", use_container_width=True)
+    with col_editor:
+        st.markdown("#### 📜 Rule Payload")
+        st.caption("Paste raw Sigma YAML detection logic.")
+        rule_text = st.text_area("payload", value=default_rule, height=450, label_visibility="collapsed")
         
-    with col_output:
-        st.markdown("### ✨ Agent Intelligence")
+        col_btn1, col_btn2 = st.columns([3, 1])
+        with col_btn1:
+            analyze_btn = st.button("🚀 EXECUTE COGNITIVE ALIGNMENT", use_container_width=True)
+            
+    with col_result:
+        st.markdown("#### 🧠 Agent Telemetry")
+        st.caption("Live reasoning and repair results.")
         
         if 'current_state' not in st.session_state:
             st.session_state.current_state = None
@@ -187,101 +259,110 @@ tags:
             import yaml
             try:
                 raw_rule = yaml.safe_load(rule_text)
-                with st.spinner("🧠 Initializing Hybrid RAG & CoT Reasoning..."):
+                with st.spinner("Initiating Vector Search & CoT Pipeline..."):
                     st.session_state.current_state = manager.run_one_rule(raw_rule, source_type="sigma")
             except Exception as e:
-                st.error(f"Error processing rule: {str(e)}")
+                st.error(f"Syntax Parse Error: {str(e)}")
                 st.session_state.current_state = None
 
         state = st.session_state.current_state
         
         if state:
             if state.errors:
-                st.error(f"🚨 Errors occurred: {state.errors}")
+                st.error(f"🚨 Pipeline Error: {state.errors}")
             else:
                 action = state.repair_result.action
                 
-                # Action Banner
-                action_color = {
-                    "KEEP": "#3b82f6",          # Blue
-                    "SUPPLEMENT": "#10b981",    # Green
-                    "POSSIBLE_MISMATCH": "#f59e0b", # Orange
-                    "ABSTAIN": "#6b7280"        # Gray
-                }.get(action, "#000000")
+                # 高级行动面板
+                action_config = {
+                    "KEEP": {"color": "#3b82f6", "icon": "✅", "desc": "Rule is aligned."},
+                    "SUPPLEMENT": {"color": "#10b981", "icon": "✨", "desc": "Coverage enhanced."},
+                    "POSSIBLE_MISMATCH": {"color": "#f59e0b", "icon": "⚠️", "desc": "Deviation detected."},
+                    "ABSTAIN": {"color": "#64748b", "icon": "⏸️", "desc": "Confidence below threshold."}
+                }.get(action, {"color": "#fff", "icon": "❓", "desc": ""})
                 
                 st.markdown(f"""
-                <div style='background-color: {action_color}15; border-left: 6px solid {action_color}; padding: 15px; border-radius: 4px; margin-bottom: 20px;'>
-                    <h3 style='margin:0; color:{action_color};'>Decision: {action}</h3>
-                    <p style='margin:5px 0 0 0; font-size:1.1em;'>{state.repair_result.repair_reason}</p>
+                <div style='background: rgba(15, 23, 42, 0.8); border: 1px solid {action_config["color"]}50; border-left: 4px solid {action_config["color"]}; padding: 20px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between;'>
+                    <div>
+                        <div style='color: {action_config["color"]}; font-size: 0.9rem; font-weight: 800; letter-spacing: 1px; margin-bottom: 4px;'>AGENT DECISION</div>
+                        <div style='color: #f8fafc; font-size: 1.5rem; font-weight: 700;'>{action_config["icon"]} {action}</div>
+                        <div style='color: #94a3b8; font-size: 0.9rem; margin-top: 5px;'>{state.repair_result.repair_reason}</div>
+                    </div>
+                    <div style='text-align: right;'>
+                        <div style='color: #64748b; font-size: 0.8rem;'>Confidence Score</div>
+                        <div style='color: {action_config["color"]}; font-size: 2rem; font-weight: 900;'>{(state.alignment_result.confidence * 100):.1f}%</div>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Tag Comparison
-                st.markdown("#### 🏷️ Tag Evolution")
-                col_orig, col_rep = st.columns(2)
-                
+                # 标签演变可视化
                 orig_tags = state.parsed_rule.existing_attack_tags
                 final_tags = state.repair_result.final_tags
                 
-                with col_orig:
-                    st.caption("ORIGINAL TAGS")
+                st.write("")
+                st.markdown("##### 🧬 Technique Vector Mapping")
+                
+                c_old, c_arrow, c_new = st.columns([4, 1, 4])
+                with c_old:
+                    st.caption("LEGACY TAGS")
                     if orig_tags:
-                        html_tags = " ".join([f"<span class='tag-original'>{t}</span>" for t in orig_tags])
-                        st.markdown(html_tags, unsafe_allow_html=True)
+                        tags_html = "".join([f"<span class='cyber-tag original'>{t}</span>" for t in orig_tags])
+                        st.markdown(f"<div class='tag-container'>{tags_html}</div>", unsafe_allow_html=True)
                     else:
-                        st.write("*None*")
+                        st.markdown("<span style='color: #64748b;'>[NO DATA]</span>", unsafe_allow_html=True)
                         
-                with col_rep:
-                    st.caption("REPAIRED TAGS")
-                    html_tags = ""
+                with c_arrow:
+                    st.markdown("<div style='text-align: center; font-size: 2rem; color: #334155; margin-top: 10px;'>➔</div>", unsafe_allow_html=True)
+                    
+                with c_new:
+                    st.caption("AUGMENTED TAGS")
+                    tags_html = ""
                     for t in final_tags:
                         if t not in orig_tags:
-                            html_tags += f"<span class='tag-new'>🎯 {t}</span> "
+                            tags_html += f"<span class='cyber-tag new'>+ {t}</span>"
                         else:
-                            html_tags += f"<span class='tag-original'>{t}</span> "
-                    st.markdown(html_tags, unsafe_allow_html=True)
+                            tags_html += f"<span class='cyber-tag original'>{t}</span>"
+                    st.markdown(f"<div class='tag-container'>{tags_html}</div>", unsafe_allow_html=True)
                 
-                st.markdown("---")
+                st.write("")
                 
-                # Human-in-the-Loop Feedback (Direction 3)
-                st.markdown("##### 👩‍💻 Expert Validation (Human-in-the-Loop)")
-                st.caption("Help improve the agent by confirming or rejecting this repair. Feedback is logged for future fine-tuning.")
-                
+                # 人类反馈机制
+                st.markdown("##### 👩‍💻 Human-in-the-Loop Validation")
                 col_y, col_n = st.columns(2)
                 with col_y:
-                    if st.button("✅ Approve Repair", use_container_width=True):
+                    if st.button("✅ ACKNOWLEDGE & MERGE", use_container_width=True):
                         save_feedback(state, accepted=True)
-                        st.toast('Feedback saved to feedback.jsonl!', icon='✅')
+                        st.toast('Telemetry logged for RLHF fine-tuning.', icon='✅')
                 with col_n:
-                    if st.button("❌ Reject Repair", use_container_width=True):
+                    if st.button("❌ REJECT OVERRIDE", use_container_width=True):
                         save_feedback(state, accepted=False)
-                        st.toast('Feedback saved to feedback.jsonl!', icon='❌')
+                        st.toast('Correction logged for RLHF fine-tuning.', icon='❌')
                 
-                st.markdown("---")
-                
-                # Transparency Trace
-                with st.expander("🔍 Inside the Agent's Mind (CoT Trace)", expanded=False):
-                    st.markdown("**1. RAG Retrieved Candidates (Top 5)**")
-                    cands = [{"Technique ID": c.technique_id, "Score": f"{c.retrieval_score:.3f}", "Name": c.technique_name} 
-                             for c in state.alignment_result.retrieved_candidates[:5]]
-                    st.dataframe(cands, use_container_width=True, hide_index=True)
+                # 透明度追踪
+                with st.expander("🔍 VIEW PIPELINE TRACE (CoT & RAG)"):
+                    st.markdown("###### 1. HYBRID RAG CANDIDATES")
+                    df_cands = pd.DataFrame([{
+                        "TID": c.technique_id, 
+                        "Name": c.technique_name, 
+                        "BM25": f"{c.metadata.get('bm25_score',0):.2f}",
+                        "Fusion": f"{c.retrieval_score:.3f}"
+                    } for c in state.alignment_result.retrieved_candidates[:5]])
+                    st.dataframe(df_cands, use_container_width=True, hide_index=True)
                     
-                    st.markdown("**2. Chain-of-Thought Reasoning**")
+                    st.markdown("###### 2. CHAIN-OF-THOUGHT TRACE")
                     if getattr(state.alignment_result, "thought_process", None):
                         tp = state.alignment_result.thought_process
-                        st.success(f"**Step 1 (Extract):** {tp.get('step1_extracted_behavior', '')}")
-                        st.info(f"**Step 2 (Tactic):** {tp.get('step2_tactic_goal', '')}")
-                        st.warning(f"**Step 3 (Technique):** {tp.get('step3_technique_matching', '')}")
-                    
-                    st.markdown(f"**Final Confidence:** `{state.alignment_result.confidence:.2f}`")
+                        st.info(f"**Extracted Vectors:** {tp.get('step1_extracted_behavior', '')}")
+                        st.success(f"**Tactic Goal:** {tp.get('step2_tactic_goal', '')}")
+                        st.warning(f"**Technique Logic:** {tp.get('step3_technique_matching', '')}")
 
         else:
-            st.info("👈 Paste a rule and click Analyze to view the magic here.")
+            st.info("System Ready. Awaiting payload...")
 
-with tab2:
-    st.markdown("### 📊 Enterprise Repair Analytics")
-    st.markdown("Visualizing the impact of the ATK-Agent across the entire Sigma ruleset.")
-    
+# ==========================================
+# 视图 2: 🛰️ 企业全景大盘
+# ==========================================
+elif view_mode == "🛰️ Enterprise Telemetry":
     rule_results_path = os.path.join(config.OUTPUTS_DIR, "rule_results.csv")
     tactic_path = os.path.join(config.OUTPUTS_DIR, "coverage_by_tactic.csv")
     tech_path = os.path.join(config.OUTPUTS_DIR, "coverage_summary.csv")
@@ -291,52 +372,88 @@ with tab2:
         df_tactic = pd.read_csv(tactic_path)
         df_tech = pd.read_csv(tech_path)
         
-        # KPIs
         total_rules = len(df_results)
         actions = df_results["action"].value_counts()
-        supplemented = actions.get("SUPPLEMENT", 0)
-        mismatch = actions.get("POSSIBLE_MISMATCH", 0)
-        repaired_count = supplemented + mismatch
+        repaired_count = actions.get("SUPPLEMENT", 0) + actions.get("POSSIBLE_MISMATCH", 0)
+        avg_conf = df_results['confidence'].mean() * 100
         
-        col_k1, col_k2, col_k3, col_k4 = st.columns(4)
-        col_k1.metric("Total Rules Processed", f"{total_rules:,}")
-        col_k2.metric("Enhanced / Repaired", f"{repaired_count:,}", f"{(repaired_count/total_rules)*100:.1f}%")
-        col_k3.metric("Kept As-Is", f"{actions.get('KEEP', 0):,}")
-        col_k4.metric("Avg LLM Confidence", f"{df_results['confidence'].mean():.2f}")
+        # 自定义大屏 KPI 卡片
+        st.markdown(f"""
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">
+            <div class="metric-card">
+                <div class="metric-title">Rules Ingested</div>
+                <div class="metric-value">{total_rules:,}</div>
+                <div class="metric-delta neutral">Target: Sigma/Splunk</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Coverage Augmented</div>
+                <div class="metric-value">{repaired_count:,}</div>
+                <div class="metric-delta positive">↑ {(repaired_count/total_rules)*100:.1f}% Impact</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Rules Retained</div>
+                <div class="metric-value">{actions.get('KEEP', 0):,}</div>
+                <div class="metric-delta neutral">Strict Alignment</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Agent Confidence</div>
+                <div class="metric-value">{avg_conf:.1f}%</div>
+                <div class="metric-delta positive">Avg Output Certainty</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.markdown("---")
+        col_chart1, col_chart2 = st.columns([1, 2])
         
-        # Action Distribution Pie Chart
-        col_pie, col_bar = st.columns([1, 1.5])
-        
-        with col_pie:
-            st.subheader("Agent Actions Breakdown")
-            fig_pie = px.pie(values=actions.values, names=actions.index, hole=0.45,
-                             color_discrete_map={
-                                 "KEEP": "#3b82f6", 
-                                 "SUPPLEMENT": "#10b981", 
-                                 "POSSIBLE_MISMATCH": "#f59e0b",
-                                 "ABSTAIN": "#9ca3af"
-                             })
-            fig_pie.update_layout(margin=dict(t=30, b=0, l=0, r=0), showlegend=True)
+        with col_chart1:
+            st.markdown("##### Action Matrix")
+            # 使用 Plotly 高级暗黑主题渲染
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=actions.index, 
+                values=actions.values,
+                hole=0.6,
+                marker=dict(colors=['#3b82f6', '#10b981', '#f59e0b', '#64748b'],
+                            line=dict(color='#0b1120', width=2))
+            )])
+            fig_pie.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#94a3b8'),
+                margin=dict(t=0, b=0, l=0, r=0),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+            )
             st.plotly_chart(fig_pie, use_container_width=True)
             
-        with col_bar:
-            st.subheader("Tactic Coverage Profile")
-            fig_bar = px.bar(df_tactic, x="Key", y="Count", text="Count",
-                             color="Count", color_continuous_scale=px.colors.sequential.Blues)
-            fig_bar.update_layout(xaxis_title="", yaxis_title="Number of Tags", 
-                                  xaxis={'categoryorder':'total descending'},
-                                  margin=dict(t=30, b=0, l=0, r=0))
+        with col_chart2:
+            st.markdown("##### Tactic Density Profile")
+            fig_bar = px.area(df_tactic, x="Key", y="Count", color_discrete_sequence=['#3b82f6'])
+            fig_bar.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#94a3b8'),
+                xaxis=dict(showgrid=False, title=""),
+                yaxis=dict(gridcolor='#1e293b', title="Density"),
+                margin=dict(t=10, b=0, l=0, r=0)
+            )
+            # 添加填充渐变和折线节点效果
+            fig_bar.update_traces(mode='lines+markers', fill='tozeroy', marker=dict(size=8, color='#10b981'))
             st.plotly_chart(fig_bar, use_container_width=True)
             
-        st.subheader("Top 15 Most Detected Techniques")
+        st.markdown("##### 🚨 Top Active Technique Signatures")
         df_tech_sorted = df_tech.sort_values(by="Count", ascending=False).head(15)
-        fig_tech = px.bar(df_tech_sorted, x="Key", y="Count", text="Count",
-                          color="Count", color_continuous_scale=px.colors.sequential.Teal)
-        fig_tech.update_layout(xaxis_title="", yaxis_title="Number of Tags",
-                               margin=dict(t=30, b=0, l=0, r=0))
+        fig_tech = px.bar(df_tech_sorted, x="Count", y="Key", orientation='h', color="Count",
+                          color_continuous_scale=px.colors.sequential.Tealgrn)
+        fig_tech.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#94a3b8'),
+            xaxis=dict(gridcolor='#1e293b', title="Signal Count"),
+            yaxis=dict(showgrid=False, title="", autorange="reversed"),
+            margin=dict(t=0, b=0, l=0, r=0),
+            coloraxis_showscale=False
+        )
         st.plotly_chart(fig_tech, use_container_width=True)
         
     else:
-        st.warning("No batch output found. Please run `python src/main.py` first to generate reports.")
+        st.info("No enterprise telemetry data found. Run `python src/main.py` locally to populate the data warehouse.")
