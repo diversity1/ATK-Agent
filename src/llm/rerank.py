@@ -56,8 +56,19 @@ def fallback_to_heuristic(parsed_rule: ParsedRule, candidates: list) -> Alignmen
         
     top1 = candidates[0].technique_id
     top3 = [c.technique_id for c in candidates[:3]]
-    # Normalize score to 0-1 for confidence roughly
-    conf = min(1.0, candidates[0].retrieval_score / 2.0)
+    top_score = float(candidates[0].retrieval_score)
+    second_score = float(candidates[1].retrieval_score) if len(candidates) > 1 else 0.0
+    score_gap = max(0.0, top_score - second_score)
+    logsource_score = float(candidates[0].why.get("logsource_score", 0.0))
+    hint_score = float(candidates[0].why.get("hint_score", 0.0))
+
+    # Calibrate heuristic confidence for RRF-scale scores and logsource evidence.
+    conf = 0.30
+    conf += min(0.30, top_score * 3.0)
+    conf += min(0.15, score_gap * 4.0)
+    conf += min(0.15, logsource_score * 0.20)
+    conf += 0.10 if hint_score > 0 else 0.0
+    conf = min(0.95, conf)
     
     return AlignmentResult(
         top1=top1,

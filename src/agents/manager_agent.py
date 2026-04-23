@@ -65,6 +65,10 @@ class ManagerAgent:
             "abstain": True,
             "action": "ERROR",
             "final_tags": [],
+            "suggested_add_tags": [],
+            "suspect_remove_tags": [],
+            "needs_review": False,
+            "mismatch_score": 0.0,
             "reason": "",
             "ranking_mode": "none"
         }
@@ -93,6 +97,10 @@ class ManagerAgent:
             record.update({
                 "action": r.action,
                 "final_tags": r.final_tags,
+                "suggested_add_tags": r.suggested_add_tags,
+                "suspect_remove_tags": r.suspect_remove_tags,
+                "needs_review": r.needs_review,
+                "mismatch_score": r.mismatch_score,
                 "reason": r.repair_reason
             })
             

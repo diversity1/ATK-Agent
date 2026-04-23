@@ -110,10 +110,6 @@ def build_normalized_rule_text(rule_dict: dict) -> str:
         parts.append(det_text + ".")
 
     # 把已有的 ATT&CK 标签作为语义提示（加权）
-    tags = [t for t in (rule_dict.get("tags", []) or []) if "attack." in str(t)]
-    if tags:
-        parts.append(f"Existing ATT&CK tags: {' '.join(tags)}.")
-
     return " ".join(parts)
 
 

@@ -12,7 +12,7 @@ import config
 from core.registry import registry
 from llm.client import LLMClient
 from agents.manager_agent import ManagerAgent
-from dataio.load_attack import load_attack_index
+from dataio.load_attack import load_attack_index, build_attack_index_from_raw, attack_index_is_enriched
 from core.utils import ensure_dir
 
 # 必须是第一个调用的 Streamlit 命令
@@ -123,8 +123,13 @@ st.markdown("""
 @st.cache_resource
 def init_system():
     if not os.path.exists(config.ATTACK_INDEX_PATH):
-        return None
-    attack_index = load_attack_index(config.ATTACK_INDEX_PATH)
+        if not os.path.exists(config.RAW_ATTACK_PATH):
+            return None
+        attack_index = build_attack_index_from_raw(config.RAW_ATTACK_PATH, config.ATTACK_INDEX_PATH)
+    else:
+        attack_index = load_attack_index(config.ATTACK_INDEX_PATH)
+    if not attack_index_is_enriched(attack_index) and os.path.exists(config.RAW_ATTACK_PATH):
+        attack_index = build_attack_index_from_raw(config.RAW_ATTACK_PATH, config.ATTACK_INDEX_PATH)
     registry.register("attack_index", attack_index)
     llm_client = LLMClient()
     registry.register("llm_client", llm_client)
@@ -261,6 +266,8 @@ tags:
                 # 标签演变可视化
                 orig_tags = state.parsed_rule.existing_attack_tags
                 final_tags = state.repair_result.final_tags
+                suggested_tags = state.repair_result.suggested_add_tags
+                suspect_remove_tags = state.repair_result.suspect_remove_tags
                 
                 st.write("")
                 st.markdown("##### 🧬 Technique Vector Mapping")
@@ -278,13 +285,23 @@ tags:
                     st.markdown("<div style='text-align: center; font-size: 2rem; color: #334155; margin-top: 10px;'>➔</div>", unsafe_allow_html=True)
                     
                 with c_new:
-                    st.caption("AUGMENTED TAGS")
+                    st.caption("FINAL TAGS")
                     tags_html = ""
                     for t in final_tags:
                         if t not in orig_tags:
                             tags_html += f"<span class='cyber-tag new'>+ {t}</span>"
                         else:
                             tags_html += f"<span class='cyber-tag original'>{t}</span>"
+                    st.markdown(f"<div class='tag-container'>{tags_html}</div>", unsafe_allow_html=True)
+
+                if suggested_tags:
+                    st.caption("SUGGESTED ADDITIONS")
+                    tags_html = "".join([f"<span class='cyber-tag new'>+ {t}</span>" for t in suggested_tags])
+                    st.markdown(f"<div class='tag-container'>{tags_html}</div>", unsafe_allow_html=True)
+
+                if suspect_remove_tags:
+                    st.caption("SUSPECT TAGS TO REVIEW")
+                    tags_html = "".join([f"<span class='cyber-tag original'>{t}</span>" for t in suspect_remove_tags])
                     st.markdown(f"<div class='tag-container'>{tags_html}</div>", unsafe_allow_html=True)
                 
                 st.write("")
@@ -307,7 +324,8 @@ tags:
                     df_cands = pd.DataFrame([{
                         "TID": c.technique_id, 
                         "Name": c.technique_name, 
-                        "BM25": f"{c.metadata.get('bm25_score',0):.2f}",
+                        "BM25": f"{c.why.get('bm25_score', 0):.2f}",
+                        "LogSrc": f"{c.why.get('logsource_score', 0):.2f}",
                         "Fusion": f"{c.retrieval_score:.3f}"
                     } for c in state.alignment_result.retrieved_candidates[:5]])
                     st.dataframe(df_cands, use_container_width=True, hide_index=True)

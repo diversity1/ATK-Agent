@@ -36,5 +36,8 @@ class AlignmentResult(BaseModel):
 class RepairResult(BaseModel):
     action: str  # KEEP, SUPPLEMENT, POSSIBLE_MISMATCH, ABSTAIN
     final_tags: List[str]
+    suggested_add_tags: List[str] = []
+    suspect_remove_tags: List[str] = []
+    needs_review: bool = False
     mismatch_score: float
     repair_reason: str
