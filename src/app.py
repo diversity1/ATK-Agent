@@ -30,7 +30,7 @@ st.markdown("""
     
     /* 强制所有默认文本、标题、Markdown 为高亮色 */
     .stApp, .stApp p, .stApp span, .stApp div, .stApp label, .stMarkdown, .stText {
-        color: #f8fafc !important; 
+        color: #f8fafc; 
         font-family: 'Inter', -apple-system, sans-serif;
     }
 
@@ -45,9 +45,27 @@ st.markdown("""
         border-right: 1px solid #1e293b;
     }
     [data-testid="stSidebar"] * {
-        color: #f1f5f9 !important;
+        color: #f1f5f9;
     }
     
+    /* 修复输入框、数字框等组件的背景色，防止白底白字 */
+    [data-baseweb="input"] {
+        background-color: #1e293b !important;
+        border: 1px solid #334155 !important;
+        border-radius: 6px !important;
+    }
+    [data-baseweb="input"] input {
+        color: #f8fafc !important;
+        background-color: transparent !important;
+    }
+    
+    /* 修复代码块 (Code Block) 的背景色 */
+    pre, code {
+        background-color: #020617 !important;
+        color: #10b981 !important;
+        border: 1px solid #1e293b !important;
+    }
+
     /* 标题特效 */
     .hero-title {
         background: -webkit-linear-gradient(45deg, #60a5fa, #34d399, #38bdf8);
