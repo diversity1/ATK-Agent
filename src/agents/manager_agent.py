@@ -8,6 +8,8 @@ from tools.coverage_analyzer_tool import summarize_by_technique, summarize_by_ta
 import uuid
 
 class ManagerAgent:
+    orchestration_mode = "classic"
+
     def __init__(self):
         self.parsing_agent = ParsingAgent()
         self.alignment_agent = AlignmentAgent(registry.get("attack_index"), registry.get("llm_client"))
@@ -70,7 +72,17 @@ class ManagerAgent:
             "needs_review": False,
             "mismatch_score": 0.0,
             "reason": "",
-            "ranking_mode": "none"
+            "ranking_mode": "none",
+            "orchestration_mode": getattr(self, "orchestration_mode", "classic"),
+            "graph_trace": [],
+            "review_status": "not_required",
+            "semantic_main_behavior": "",
+            "semantic_extraction_mode": "",
+            "query_plan": [],
+            "verification_verdict": "",
+            "verification_reason": "",
+            "review_question": "",
+            "review_summary": ""
         }
         
         if rule_state.parsed_rule:
@@ -91,6 +103,23 @@ class ManagerAgent:
                 "abstain": a.abstain,
                 "ranking_mode": a.ranking_mode
             })
+
+        if getattr(rule_state, "semantic_profile", None):
+            s = rule_state.semantic_profile
+            record.update({
+                "semantic_main_behavior": s.main_behavior,
+                "semantic_extraction_mode": s.extraction_mode
+            })
+
+        if getattr(rule_state, "query_plan", None):
+            record["query_plan"] = rule_state.query_plan.queries
+
+        if getattr(rule_state, "verification_result", None):
+            v = rule_state.verification_result
+            record.update({
+                "verification_verdict": v.verdict,
+                "verification_reason": v.reason
+            })
             
         if rule_state.repair_result:
             r = rule_state.repair_result
@@ -103,5 +132,18 @@ class ManagerAgent:
                 "mismatch_score": r.mismatch_score,
                 "reason": r.repair_reason
             })
+
+        if getattr(rule_state, "review_brief", None):
+            rb = rule_state.review_brief
+            record.update({
+                "review_question": rb.review_question,
+                "review_summary": rb.analyst_summary
+            })
+
+        record.update({
+            "orchestration_mode": getattr(rule_state, "orchestration_mode", getattr(self, "orchestration_mode", "classic")),
+            "graph_trace": getattr(rule_state, "graph_trace", []),
+            "review_status": getattr(rule_state, "review_status", "not_required")
+        })
             
         return record

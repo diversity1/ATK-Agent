@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import config
 from core.registry import registry
 from llm.client import LLMClient
-from agents.manager_agent import ManagerAgent
+from agents.langgraph_orchestrator import create_manager_agent
 from dataio.load_attack import load_attack_index, build_attack_index_from_raw, attack_index_is_enriched
 from core.utils import ensure_dir
 
@@ -133,7 +133,7 @@ def init_system():
     registry.register("attack_index", attack_index)
     llm_client = LLMClient()
     registry.register("llm_client", llm_client)
-    manager = ManagerAgent()
+    manager = create_manager_agent()
     registry.register("manager_agent", manager)
     return manager
 
@@ -320,22 +320,54 @@ tags:
                 
                 # 透明度追踪
                 with st.expander("🔍 VIEW PIPELINE TRACE (CoT & RAG)"):
-                    st.markdown("###### 1. HYBRID RAG CANDIDATES")
+                    st.markdown("###### 0. LANGGRAPH ORCHESTRATION TRACE")
+                    trace = getattr(state, "graph_trace", [])
+                    review_status = getattr(state, "review_status", "not_required")
+                    if trace:
+                        st.code(" -> ".join(trace))
+                    st.caption(f"review_status={review_status}")
+
+                    st.markdown("###### 1. LLM SEMANTIC PROFILE")
+                    semantic_profile = getattr(state, "semantic_profile", None)
+                    if semantic_profile:
+                        st.json(semantic_profile.model_dump())
+
+                    st.markdown("###### 2. LLM QUERY PLAN")
+                    query_plan = getattr(state, "query_plan", None)
+                    if query_plan:
+                        st.json(query_plan.model_dump())
+
+                    st.markdown("###### 3. HYBRID RAG CANDIDATES")
                     df_cands = pd.DataFrame([{
                         "TID": c.technique_id, 
                         "Name": c.technique_name, 
                         "BM25": f"{c.why.get('bm25_score', 0):.2f}",
                         "LogSrc": f"{c.why.get('logsource_score', 0):.2f}",
+                        "Queries": c.why.get("query_count", 1),
                         "Fusion": f"{c.retrieval_score:.3f}"
                     } for c in state.alignment_result.retrieved_candidates[:5]])
                     st.dataframe(df_cands, use_container_width=True, hide_index=True)
                     
-                    st.markdown("###### 2. CHAIN-OF-THOUGHT TRACE")
+                    st.markdown("###### 4. ALIGNMENT REASONING")
                     if getattr(state.alignment_result, "thought_process", None):
                         tp = state.alignment_result.thought_process
                         st.info(f"**Extracted Vectors:** {tp.get('step1_extracted_behavior', '')}")
                         st.success(f"**Tactic Goal:** {tp.get('step2_tactic_goal', '')}")
                         st.warning(f"**Technique Logic:** {tp.get('step3_technique_matching', '')}")
+                    if getattr(state.alignment_result, "evidence_from_rule", None):
+                        st.write("Rule evidence:", state.alignment_result.evidence_from_rule)
+                    if getattr(state.alignment_result, "evidence_from_attack", None):
+                        st.write("ATT&CK evidence:", state.alignment_result.evidence_from_attack)
+
+                    st.markdown("###### 5. VERIFICATION AGENT")
+                    verification_result = getattr(state, "verification_result", None)
+                    if verification_result:
+                        st.json(verification_result.model_dump())
+
+                    review_brief = getattr(state, "review_brief", None)
+                    if review_brief:
+                        st.markdown("###### 6. REVIEW ASSISTANT BRIEF")
+                        st.json(review_brief.model_dump())
 
         else:
             st.info("System Ready. Awaiting payload...")

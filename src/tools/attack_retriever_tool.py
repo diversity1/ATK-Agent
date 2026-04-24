@@ -11,6 +11,12 @@ except ImportError:
 
 try:
     import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    np = None
+    HAS_NUMPY = False
+
+try:
     from sentence_transformers import SentenceTransformer
     from sklearn.metrics.pairwise import cosine_similarity
     HAS_DENSE_DEPS = True
@@ -126,7 +132,7 @@ class AttackRetrieverEngine:
         self.dense_model = None
         self.dense_embeddings = None
         
-        if HAS_BM25:
+        if HAS_BM25 and HAS_NUMPY:
             try:
                 tokenized_corpus = [self._tokenize(doc) for doc in self.corpus_texts]
                 self.bm25 = BM25Okapi(tokenized_corpus)
@@ -134,6 +140,8 @@ class AttackRetrieverEngine:
             except Exception as exc:
                 self.bm25 = None
                 print(f"BM25 retriever unavailable, using heuristic fallback: {exc}")
+        elif HAS_BM25 and not HAS_NUMPY:
+            print("BM25 retriever disabled: numpy is required for ranking.")
 
         if config.ENABLE_DENSE_RETRIEVAL:
             self._try_init_dense_model()
@@ -234,27 +242,29 @@ class AttackRetrieverEngine:
 
         return min(1.0, score)
 
-    def retrieve(self, parsed_rule: ParsedRule, top_k: int = 10) -> List[CandidateTechnique]:
+    def retrieve(self, parsed_rule: ParsedRule, top_k: int = 10, query_texts: list = None) -> List[CandidateTechnique]:
         if not self.bm25 and not self.dense_model:
-            return self._fallback_retrieve(parsed_rule, top_k)
+            return self._fallback_retrieve(parsed_rule, top_k, query_texts=query_texts)
             
-        query = parsed_rule.normalized_rule_text
+        query_texts = self._normalize_queries(parsed_rule, query_texts)
         ranks_by_source = []
-        source_scores = {}
+        bm25_score_sets = []
+        dense_score_sets = []
         
-        if self.bm25:
-            tokenized_query = self._tokenize(query)
-            bm25_scores = self.bm25.get_scores(tokenized_query)
-            bm25_ranks = np.argsort(bm25_scores)[::-1]
-            ranks_by_source.append(bm25_ranks)
-            source_scores["bm25_score"] = bm25_scores
-        
-        if self.dense_model and self.dense_embeddings is not None:
-            query_emb = self.dense_model.encode([query], convert_to_numpy=True)
-            dense_scores = cosine_similarity(query_emb, self.dense_embeddings)[0]
-            dense_ranks = np.argsort(dense_scores)[::-1]
-            ranks_by_source.append(dense_ranks)
-            source_scores["dense_score"] = dense_scores
+        for query in query_texts:
+            if self.bm25:
+                tokenized_query = self._tokenize(query)
+                bm25_scores = self.bm25.get_scores(tokenized_query)
+                bm25_ranks = np.argsort(bm25_scores)[::-1]
+                ranks_by_source.append(bm25_ranks)
+                bm25_score_sets.append(bm25_scores)
+            
+            if self.dense_model and self.dense_embeddings is not None:
+                query_emb = self.dense_model.encode([query], convert_to_numpy=True)
+                dense_scores = cosine_similarity(query_emb, self.dense_embeddings)[0]
+                dense_ranks = np.argsort(dense_scores)[::-1]
+                ranks_by_source.append(dense_ranks)
+                dense_score_sets.append(dense_scores)
         
         # 3. RRF (Reciprocal Rank Fusion)
         k_rrf = 60
@@ -275,9 +285,15 @@ class AttackRetrieverEngine:
             tid = self.keys[idx]
             doc = self.attack_index[tid]
             score = rrf_scores[idx]
-            why = {"rrf_score": float(score)}
-            for score_name, scores in source_scores.items():
-                why[score_name] = float(scores[idx])
+            why = {
+                "rrf_score": float(score),
+                "query_count": len(query_texts),
+                "retrieval_queries": query_texts[:5],
+            }
+            if bm25_score_sets:
+                why["bm25_score"] = float(max(scores[idx] for scores in bm25_score_sets))
+            if dense_score_sets:
+                why["dense_score"] = float(max(scores[idx] for scores in dense_score_sets))
             why["logsource_score"] = self._compute_logsource_score(parsed_rule, doc)
             candidates.append(CandidateTechnique(
                 technique_id=tid,
@@ -290,9 +306,10 @@ class AttackRetrieverEngine:
             
         return candidates
 
-    def _fallback_retrieve(self, parsed_rule: ParsedRule, top_k: int = 10) -> List[CandidateTechnique]:
+    def _fallback_retrieve(self, parsed_rule: ParsedRule, top_k: int = 10, query_texts: list = None) -> List[CandidateTechnique]:
         # Original naive heuristic logic
-        rule_text = parsed_rule.normalized_rule_text.lower()
+        queries = self._normalize_queries(parsed_rule, query_texts)
+        rule_text = " ".join(queries).lower()
         rule_tokens = set(rule_text.split())
         candidates = []
         
@@ -327,11 +344,21 @@ class AttackRetrieverEngine:
         candidates.sort(key=lambda x: x.retrieval_score, reverse=True)
         return candidates[:top_k]
 
+    @staticmethod
+    def _normalize_queries(parsed_rule: ParsedRule, query_texts: list = None) -> list:
+        queries = []
+        for query in [parsed_rule.normalized_rule_text, *(query_texts or [])]:
+            query = (query or "").strip()
+            key = query.lower()
+            if query and key not in {q.lower() for q in queries}:
+                queries.append(query)
+        return queries or [parsed_rule.normalized_rule_text or parsed_rule.title or ""]
+
 # Global instance will be set by AlignmentAgent
 _retriever_engine = None
 
-def retrieve_top_candidates(parsed_rule: ParsedRule, attack_index: dict, top_k: int = 10) -> List[CandidateTechnique]:
+def retrieve_top_candidates(parsed_rule: ParsedRule, attack_index: dict, top_k: int = 10, query_texts: list = None) -> List[CandidateTechnique]:
     global _retriever_engine
     if _retriever_engine is None:
         _retriever_engine = AttackRetrieverEngine(attack_index)
-    return _retriever_engine.retrieve(parsed_rule, top_k)
+    return _retriever_engine.retrieve(parsed_rule, top_k, query_texts=query_texts)

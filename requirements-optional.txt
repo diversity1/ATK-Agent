@@ -1,0 +1,4 @@
+# Optional dense retrieval dependencies.
+# Install these locally if you want ENABLE_DENSE_RETRIEVAL=True.
+scikit-learn>=1.3.0
+sentence-transformers>=2.2.2

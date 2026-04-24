@@ -1,23 +1,16 @@
 import json
 from core.schemas import ParsedRule, AlignmentResult
 from llm.prompts import build_rerank_prompt
+from llm.json_utils import parse_json_object
 
 def parse_llm_alignment_output(raw_text: str) -> dict:
-    try:
-        data = json.loads(raw_text)
-        return data
-    except Exception:
-        # try to extract json from code block
-        if "```json" in raw_text:
-            block = raw_text.split("```json")[1].split("```")[0]
-            return json.loads(block)
-        return {}
+    return parse_json_object(raw_text)
 
-def rerank_with_llm(parsed_rule: ParsedRule, candidates: list, llm_client) -> AlignmentResult:
+def rerank_with_llm(parsed_rule: ParsedRule, candidates: list, llm_client, semantic_profile=None, query_plan=None) -> AlignmentResult:
     if not candidates:
         return fallback_to_heuristic(parsed_rule, candidates)
         
-    prompt = build_rerank_prompt(parsed_rule, candidates)
+    prompt = build_rerank_prompt(parsed_rule, candidates, semantic_profile, query_plan)
     messages = [
         {"role": "system", "content": "You are a cybersecurity JSON API."},
         {"role": "user", "content": prompt}
@@ -37,6 +30,8 @@ def rerank_with_llm(parsed_rule: ParsedRule, candidates: list, llm_client) -> Al
         confidence=data.get("confidence", 0.5),
         reason=data.get("reason", "LLM Reranked"),
         thought_process=data.get("thought_process", None),
+        evidence_from_rule=_list_of_strings(data.get("evidence_from_rule", [])),
+        evidence_from_attack=_list_of_strings(data.get("evidence_from_attack", [])),
         abstain=data.get("abstain", False),
         ranking_mode="llm",
         retrieved_candidates=[c.model_dump() for c in candidates]
@@ -75,7 +70,14 @@ def fallback_to_heuristic(parsed_rule: ParsedRule, candidates: list) -> Alignmen
         top3=top3,
         confidence=conf,
         reason="Heuristic top-k",
+        evidence_from_rule=[],
+        evidence_from_attack=[],
         abstain=(conf < 0.3),
         ranking_mode="heuristic",
         retrieved_candidates=[c.model_dump() for c in candidates]
     )
+
+def _list_of_strings(value):
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]

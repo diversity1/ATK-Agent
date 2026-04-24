@@ -1,4 +1,4 @@
-def build_rerank_prompt(parsed_rule, candidates):
+def build_rerank_prompt(parsed_rule, candidates, semantic_profile=None, query_plan=None):
     cand_text = ""
     for idx, c in enumerate(candidates):
         tactic_str = ", ".join(c.tactics)
@@ -10,6 +10,9 @@ def build_rerank_prompt(parsed_rule, candidates):
             f"LogSource Match: {logsource_score:.3f})\n"
         )
         
+    semantic_block = semantic_profile.model_dump() if semantic_profile else {}
+    query_plan_block = query_plan.model_dump() if query_plan else {}
+
     return f"""You are an expert Security Operations Center (SOC) Analyst.
 Your task is to accurately map a Sigma detection rule to the MITRE ATT&CK framework.
 Do NOT guess directly. You must follow a strict Chain of Thought (CoT) reasoning process.
@@ -19,6 +22,8 @@ Rule Description: {parsed_rule.description}
 Rule Log Source: product={parsed_rule.product}, category={parsed_rule.category}, service={parsed_rule.service}
 Rule Detection Logic: {parsed_rule.detection_text}
 Original Tags: {parsed_rule.existing_attack_tags}
+LLM Semantic Profile: {semantic_block}
+Retrieval Query Plan: {query_plan_block}
 
 Retrieved Candidates (Top matches from semantic search):
 {cand_text}
@@ -38,6 +43,8 @@ Output strictly in the following JSON format:
   "top1": "TXXXX.XXX",
   "top3": ["TXXXX.XXX", ...],
   "confidence": 0.0 to 1.0 (float),
+  "evidence_from_rule": ["short evidence from the rule"],
+  "evidence_from_attack": ["short evidence from the chosen ATT&CK candidate"],
   "reason": "Summarize your thought process in 1 sentence.",
   "abstain": false
 }}

@@ -1,6 +1,7 @@
 # Environment variables (CRITICAL: Never commit your API keys!)
 .env
 .env.*
+.streamlit/secrets.toml
 
 # Python cache
 __pycache__/

@@ -10,7 +10,7 @@ from dataio.load_attack import load_attack_index, build_attack_index_from_raw, a
 from llm.client import LLMClient
 from pipelines.process_rule_batch import process_rule_batch
 from dataio.save_results import save_rule_results_jsonl, save_rule_results_csv, save_run_report, save_coverage_csv
-from agents.manager_agent import ManagerAgent
+from agents.langgraph_orchestrator import create_manager_agent
 
 def setup():
     ensure_dir(config.OUTPUTS_DIR)
@@ -42,7 +42,7 @@ def setup():
     llm_client = LLMClient()
     registry.register("llm_client", llm_client)
     
-    registry.register("manager_agent", ManagerAgent())
+    registry.register("manager_agent", create_manager_agent())
 
 def main():
     setup()

@@ -47,11 +47,66 @@
 - `ManagerAgent`  
   负责整条处理链路的编排
 
+当前代码已增加 LangGraph 编排增强层：
+
+- `LangGraphManagerAgent`  
+  基于 `StateGraph` 将解析、对齐、修复和复核入口建模为显式工作流节点
+- `human_review_gate`  
+  当修复结果 `needs_review=True` 时进入人工复核门控节点，当前默认记录 `review_status=pending`，保留后续接入 interrupt/resume 的扩展空间
+
 核心编排入口：
 
 - 批处理入口：[src/main.py](src/main.py)
 - Web 页面入口：[src/app.py](src/app.py)
 - 总控 Agent：[src/agents/manager_agent.py](src/agents/manager_agent.py)
+- LangGraph 编排：[src/agents/langgraph_orchestrator.py](src/agents/langgraph_orchestrator.py)
+
+### 3.1 Agent 编排状态图
+
+LangGraph 版本保留原有确定性解析、检索和修复策略，同时新增多段 LLM Agent。当前状态图如下：
+
+```text
+START
+  -> parse_rule
+  -> semantic_extract
+  -> plan_queries
+  -> align_attack
+  -> verify_alignment
+  -> repair_tags
+  -> review_brief        # needs_review=True 时生成
+  -> human_review_gate  # needs_review=True 时进入
+  -> finalize
+  -> END
+```
+
+每个节点读写同一个图状态：
+
+- `raw_rule`
+- `parsed_rule`
+- `semantic_profile`
+- `query_plan`
+- `alignment_result`
+- `verification_result`
+- `repair_result`
+- `review_brief`
+- `errors`
+- `graph_trace`
+- `review_status`
+
+这样做的好处是：算法逻辑仍然稳定可复用，同时大模型不再只做候选重排，而是参与语义抽取、检索查询规划、候选验证和人工复核说明生成。离线或 API 不可用时，这些节点会自动回退到启发式实现。
+
+### 3.2 LLM Agent 分工
+
+- `SemanticExtractionAgent`  
+  从规则标题、描述、日志源和 detection 中抽取攻击行为画像，输出 `main_behavior`、`observables`、`tools_or_binaries`、`likely_tactics`、`required_data_sources`。
+- `QueryPlannerAgent`  
+  基于语义画像生成多路检索 query，包括关键词 query、行为 query、数据源 query 和 tactic query。
+- `AlignmentAgent`  
+  基于多查询召回候选，再通过 LLM 或启发式方法输出 `top1/top3/confidence` 和证据。
+- `VerificationAgent`  
+  对 `AlignmentAgent` 的结论做反向一致性验证，并对置信度做小幅校准。
+- `ReviewAssistantAgent`  
+  当结果需要人工复核时，生成面向分析师的复核问题、摘要、证据表和建议选项。
 
 ## 4. 核心算法流程
 
@@ -369,6 +424,46 @@ $env:ENABLE_DENSE_RETRIEVAL='True'
 python -m streamlit run src/app.py
 ```
 
+### 8.6 公开部署到 Streamlit Cloud
+
+本项目是 Streamlit/Python 应用，GitHub Pages 不能直接运行后端 Python 服务。推荐部署方式是：
+
+```text
+GitHub 仓库 -> Streamlit Community Cloud -> *.streamlit.app 公共链接
+```
+
+项目根目录已提供云端入口：
+
+```text
+streamlit_app.py
+```
+
+部署时在 Streamlit Community Cloud 中选择：
+
+- Repository：你的 GitHub 仓库
+- Branch：`main`
+- Main file path：`streamlit_app.py`
+
+如果只是公开演示，可以在 Streamlit Secrets 中关闭在线模型：
+
+```toml
+ENABLE_LLM = "False"
+ENABLE_DENSE_RETRIEVAL = "False"
+```
+
+如果希望启用 LLM Agent，在 Streamlit Secrets 中配置：
+
+```toml
+ENABLE_LLM = "True"
+ENABLE_DENSE_RETRIEVAL = "False"
+LLM_PROVIDER = "openai"
+LLM_MODEL = "qwen-plus"
+LLM_API_KEY = "your-api-key"
+LLM_API_BASE = "https://your-compatible-endpoint/v1"
+```
+
+更完整的部署步骤见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
 ## 9. 关键配置项
 
 配置文件位置：[src/config.py](src/config.py)
@@ -376,7 +471,7 @@ python -m streamlit run src/app.py
 常用环境变量：
 
 - `ENABLE_LLM`  
-  是否启用 LLM 重排
+  是否启用 LLM 语义抽取、查询规划、候选重排、验证和复核说明生成
 - `ENABLE_DENSE_RETRIEVAL`  
   是否启用向量检索
 - `EMBEDDING_MODEL`  
@@ -416,6 +511,26 @@ python -m streamlit run src/app.py
   建议复核或移除的旧标签
 - `needs_review`  
   是否应进入人工复核
+- `orchestration_mode`  
+  当前编排方式，`langgraph` 表示通过 LangGraph 状态图执行
+- `graph_trace`  
+  单条规则经过的图节点轨迹，例如 `parse_rule -> semantic_extract -> plan_queries -> align_attack -> verify_alignment -> repair_tags -> finalize`
+- `review_status`  
+  人工复核状态，当前包括 `not_required` / `pending`
+- `semantic_main_behavior`  
+  LLM/启发式语义抽取到的主要检测行为
+- `semantic_extraction_mode`  
+  语义抽取模式，`llm` 或 `heuristic`
+- `query_plan`  
+  多路 ATT&CK 检索查询列表
+- `verification_verdict`  
+  验证 Agent 对候选映射的结论，例如 `accept` / `revise` / `reject`
+- `verification_reason`  
+  验证 Agent 给出的校验说明
+- `review_question`  
+  需要人工复核时给分析师的问题
+- `review_summary`  
+  面向人工复核的简短说明
 
 ## 11. 评估模块
 
