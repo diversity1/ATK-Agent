@@ -16,4 +16,4 @@ def load_sigma_rules(dir_path: str) -> list:
     return load_rule_paths(dir_path, [".yml", ".yaml"])
 
 def load_splunk_rules(dir_path: str) -> list:
-    return load_rule_paths(dir_path, [".json"])
+    return load_rule_paths(dir_path, [".json", ".spl", ".txt"])

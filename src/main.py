@@ -1,11 +1,12 @@
 import os
 import sys
+import uuid
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import config
 from core.registry import registry
 from core.utils import ensure_dir
-from dataio.load_rules import load_sigma_rules
+from dataio.load_rules import load_sigma_rules, load_splunk_rules
 from dataio.load_attack import load_attack_index, build_attack_index_from_raw, attack_index_is_enriched
 from llm.client import LLMClient
 from pipelines.process_rule_batch import process_rule_batch
@@ -51,27 +52,39 @@ def main():
     if not os.path.exists(sigma_dir):
         ensure_dir(sigma_dir)
         print(f"Please place some sigma rules in {sigma_dir}")
-        
-    rule_paths = load_sigma_rules(sigma_dir)
-    if not rule_paths:
-        print(f"No rules found in {sigma_dir}.")
+
+    splunk_dir = config.SPLUNK_RULES_DIR
+    if not os.path.exists(splunk_dir):
+        ensure_dir(splunk_dir)
+
+    source_batches = [
+        ("sigma", load_sigma_rules(sigma_dir)),
+        ("splunk", load_splunk_rules(splunk_dir)),
+    ]
+    source_batches = [(source, paths) for source, paths in source_batches if paths]
+    if not source_batches:
+        print(f"No rules found in {sigma_dir} or {splunk_dir}.")
         return
 
-    print(f"Found {len(rule_paths)} rules. Processing...")
-    
     manager = registry.get("manager_agent")
-    batch_state = process_rule_batch(rule_paths, manager, "sigma")
+    all_rule_states = []
+    run_id = str(uuid.uuid4())
+    for source_type, rule_paths in source_batches:
+        print(f"Found {len(rule_paths)} {source_type} rules. Processing...")
+        batch_state = process_rule_batch(rule_paths, manager, source_type)
+        all_rule_states.extend(batch_state.rules)
     
     # Save outputs
-    results = [manager._build_final_rule_record(r) for r in batch_state.rules]
+    results = [manager._build_final_rule_record(r) for r in all_rule_states]
     save_rule_results_jsonl(results, os.path.join(config.OUTPUTS_DIR, "rule_results.jsonl"))
     save_rule_results_csv(results, os.path.join(config.OUTPUTS_DIR, "rule_results.csv"))
     
-    if batch_state.coverage_summary:
-        save_coverage_csv(batch_state.coverage_summary["technique_coverage"], os.path.join(config.OUTPUTS_DIR, "coverage_summary.csv"))
-        save_coverage_csv(batch_state.coverage_summary["tactic_coverage"], os.path.join(config.OUTPUTS_DIR, "coverage_by_tactic.csv"))
+    coverage_summary = manager._run_coverage(all_rule_states)
+    if coverage_summary:
+        save_coverage_csv(coverage_summary["technique_coverage"], os.path.join(config.OUTPUTS_DIR, "coverage_summary.csv"))
+        save_coverage_csv(coverage_summary["tactic_coverage"], os.path.join(config.OUTPUTS_DIR, "coverage_by_tactic.csv"))
         
-    save_run_report({"run_id": batch_state.run_id, "processed_rules": len(results)}, os.path.join(config.OUTPUTS_DIR, "run_report.json"))
+    save_run_report({"run_id": run_id, "processed_rules": len(results)}, os.path.join(config.OUTPUTS_DIR, "run_report.json"))
     
     print("Done! Check data/outputs/ for results.")
 

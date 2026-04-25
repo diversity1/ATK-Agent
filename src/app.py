@@ -14,6 +14,15 @@ from llm.client import LLMClient
 from agents.langgraph_orchestrator import create_manager_agent
 from dataio.load_attack import load_attack_index, build_attack_index_from_raw, attack_index_is_enriched
 from core.utils import ensure_dir
+from tools.governance_report_tool import (
+    GOVERNANCE_ACTIONS,
+    REVIEW_ACTIONS,
+    build_governance_summary,
+    parse_list_cell,
+    render_markdown_report,
+    save_markdown_report,
+    truthy,
+)
 
 # 必须是第一个调用的 Streamlit 命令
 st.set_page_config(page_title="ATK-Agent Sentinel", layout="wide", page_icon="🛡️", initial_sidebar_state="expanded")
@@ -154,6 +163,42 @@ def save_feedback(state, accepted: bool):
     with open(fb_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+
+def save_row_review_feedback(row: dict, decision: str, comment: str = ""):
+    ensure_dir(config.OUTPUTS_DIR)
+    fb_path = os.path.join(config.OUTPUTS_DIR, "review_feedback.jsonl")
+    record = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "rule_id": row.get("rule_id", "unknown"),
+        "title": row.get("title", ""),
+        "action": row.get("action", ""),
+        "decision": decision,
+        "comment": comment,
+        "suggested_add_tags": parse_list_cell(row.get("suggested_add_tags", [])),
+        "suspect_remove_tags": parse_list_cell(row.get("suspect_remove_tags", [])),
+    }
+    with open(fb_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _records_from_df(df: pd.DataFrame) -> list:
+    if df is None or df.empty:
+        return []
+    return df.fillna("").to_dict(orient="records")
+
+
+def _review_mask(df: pd.DataFrame) -> pd.Series:
+    if df.empty:
+        return pd.Series(dtype=bool)
+    needs_review = df.get("needs_review", pd.Series(False, index=df.index)).apply(truthy)
+    action_review = df.get("action", pd.Series("", index=df.index)).isin(REVIEW_ACTIONS)
+    suspect = df.get("suspect_remove_tags", pd.Series("", index=df.index)).apply(lambda value: len(parse_list_cell(value)) > 0)
+    return needs_review | action_review | suspect
+
+
+def _format_list_cell(value) -> str:
+    return ", ".join(str(item) for item in parse_list_cell(value))
+
 # ==========================================
 # 🎛️ 侧边栏设置
 # ==========================================
@@ -166,6 +211,7 @@ with st.sidebar:
     
     st.divider()
     st.markdown("#### ENGINE SETTINGS")
+    source_type = st.selectbox("Rule Source", ["sigma", "splunk"], index=0)
     confidence_th = st.slider("Silver Standard Threshold", min_value=0.5, max_value=0.99, value=0.85, step=0.01)
     top_k = st.number_input("RAG Retrieval Top-K", min_value=1, max_value=20, value=10)
     st.caption("Adjusts precision vs recall tradeoff for the RAG alignment.")
@@ -189,7 +235,7 @@ if not manager:
 # 视图 1: ⚡ 实时交互沙盒
 # ==========================================
 if view_mode == "⚡ Real-time Sandbox":
-    default_rule = """title: Sample Suspicious PowerShell
+    default_sigma_rule = """title: Sample Suspicious PowerShell
 id: 1234-5678
 description: Detects suspicious powershell execution
 logsource:
@@ -204,12 +250,15 @@ tags:
   - attack.execution
   - attack.t1059
 """
+    default_splunk_rule = """index=wineventlog sourcetype=XmlWinEventLog:Microsoft-Windows-Sysmon/Operational EventCode=1 Image="*\\powershell.exe" CommandLine="*-enc*"
+"""
     
     col_editor, col_result = st.columns([1, 1.4], gap="large")
     
     with col_editor:
         st.markdown("#### 📜 Rule Payload")
-        st.caption("Paste raw Sigma YAML detection logic.")
+        st.caption("Paste raw Sigma YAML or Splunk SPL detection logic.")
+        default_rule = default_sigma_rule if source_type == "sigma" else default_splunk_rule
         rule_text = st.text_area("payload", value=default_rule, height=450, label_visibility="collapsed")
         
         col_btn1, col_btn2 = st.columns([3, 1])
@@ -226,9 +275,12 @@ tags:
         if analyze_btn:
             import yaml
             try:
-                raw_rule = yaml.safe_load(rule_text)
+                if source_type == "sigma":
+                    raw_rule = yaml.safe_load(rule_text)
+                else:
+                    raw_rule = {"name": "Ad-hoc Splunk SPL", "search": rule_text}
                 with st.spinner("Initiating Vector Search & CoT Pipeline..."):
-                    st.session_state.current_state = manager.run_one_rule(raw_rule, source_type="sigma")
+                    st.session_state.current_state = manager.run_one_rule(raw_rule, source_type=source_type)
             except Exception as e:
                 st.error(f"Syntax Parse Error: {str(e)}")
                 st.session_state.current_state = None
@@ -244,9 +296,14 @@ tags:
                 # 高级行动面板
                 action_config = {
                     "KEEP": {"color": "#3b82f6", "icon": "✅", "desc": "Rule is aligned."},
+                    "ADD_CANDIDATE": {"color": "#10b981", "icon": "✨", "desc": "Candidate tag proposed."},
+                    "REFINE_TO_SUBTECHNIQUE": {"color": "#38bdf8", "icon": "🎯", "desc": "More specific sub-technique found."},
+                    "COARSEN_TO_PARENT": {"color": "#f59e0b", "icon": "↥", "desc": "Only parent technique is supported."},
+                    "REPLACE_SUSPECT": {"color": "#f97316", "icon": "⚠️", "desc": "Replacement requires review."},
+                    "REMOVE_SUSPECT": {"color": "#ef4444", "icon": "⛔", "desc": "Existing tag is suspect."},
+                    "ABSTAIN": {"color": "#64748b", "icon": "⏸️", "desc": "Confidence below threshold."},
                     "SUPPLEMENT": {"color": "#10b981", "icon": "✨", "desc": "Coverage enhanced."},
                     "POSSIBLE_MISMATCH": {"color": "#f59e0b", "icon": "⚠️", "desc": "Deviation detected."},
-                    "ABSTAIN": {"color": "#64748b", "icon": "⏸️", "desc": "Confidence below threshold."}
                 }.get(action, {"color": "#fff", "icon": "❓", "desc": ""})
                 
                 st.markdown(f"""
@@ -327,6 +384,17 @@ tags:
                         st.code(" -> ".join(trace))
                     st.caption(f"review_status={review_status}")
 
+                    if state.parsed_rule:
+                        st.markdown("###### 0.1 NORMALIZED RULE IR")
+                        st.json({
+                            "source_type": state.parsed_rule.source_type,
+                            "query_language": state.parsed_rule.query_language,
+                            "platforms": state.parsed_rule.platforms,
+                            "telemetry": state.parsed_rule.telemetry,
+                            "data_components": state.parsed_rule.data_components,
+                            "entities": state.parsed_rule.entities[:20],
+                        })
+
                     st.markdown("###### 1. LLM SEMANTIC PROFILE")
                     semantic_profile = getattr(state, "semantic_profile", None)
                     if semantic_profile:
@@ -343,10 +411,23 @@ tags:
                         "Name": c.technique_name, 
                         "BM25": f"{c.why.get('bm25_score', 0):.2f}",
                         "LogSrc": f"{c.why.get('logsource_score', 0):.2f}",
+                        "Entity": f"{c.score_breakdown.get('entity_score', 0):.2f}",
+                        "DataSrc": f"{c.score_breakdown.get('telemetry_score', 0):.2f}",
+                        "Platform": f"{c.score_breakdown.get('platform_score', 0):.2f}",
+                        "Penalty": f"{c.score_breakdown.get('contradiction_penalty', 0):.2f}",
                         "Queries": c.why.get("query_count", 1),
                         "Fusion": f"{c.retrieval_score:.3f}"
                     } for c in state.alignment_result.retrieved_candidates[:5]])
                     st.dataframe(df_cands, use_container_width=True, hide_index=True)
+
+                    if getattr(state.alignment_result, "score_breakdown", None):
+                        st.markdown("###### 3.1 TOP CANDIDATE EVIDENCE")
+                        st.json({
+                            "score_breakdown": state.alignment_result.score_breakdown,
+                            "matched_data_sources": state.alignment_result.matched_data_sources,
+                            "matched_observables": state.alignment_result.matched_observables,
+                            "contradictions": state.alignment_result.contradictions,
+                        })
                     
                     st.markdown("###### 4. ALIGNMENT REASONING")
                     if getattr(state.alignment_result, "thought_process", None):
@@ -379,17 +460,43 @@ elif view_mode == "🛰️ Enterprise Telemetry":
     rule_results_path = os.path.join(config.OUTPUTS_DIR, "rule_results.csv")
     tactic_path = os.path.join(config.OUTPUTS_DIR, "coverage_by_tactic.csv")
     tech_path = os.path.join(config.OUTPUTS_DIR, "coverage_summary.csv")
-    
-    if os.path.exists(rule_results_path) and os.path.exists(tactic_path) and os.path.exists(tech_path):
+
+    uploaded_results = st.file_uploader("Upload rule_results.csv", type=["csv"])
+    if uploaded_results is not None:
+        df_results = pd.read_csv(uploaded_results)
+        df_tactic = pd.DataFrame(columns=["Key", "Count"])
+        df_tech = pd.DataFrame(columns=["Key", "Count"])
+        st.caption("Using uploaded result file. Coverage charts use local coverage files only when available.")
+    elif os.path.exists(rule_results_path):
         df_results = pd.read_csv(rule_results_path)
-        df_tactic = pd.read_csv(tactic_path)
-        df_tech = pd.read_csv(tech_path)
-        
+        df_tactic = pd.read_csv(tactic_path) if os.path.exists(tactic_path) else pd.DataFrame(columns=["Key", "Count"])
+        df_tech = pd.read_csv(tech_path) if os.path.exists(tech_path) else pd.DataFrame(columns=["Key", "Count"])
+    else:
+        df_results = pd.DataFrame()
+        df_tactic = pd.DataFrame(columns=["Key", "Count"])
+        df_tech = pd.DataFrame(columns=["Key", "Count"])
+
+    if not df_results.empty:
+        df_results["confidence"] = pd.to_numeric(df_results.get("confidence", 0.0), errors="coerce").fillna(0.0)
+        if "needs_review" not in df_results.columns:
+            df_results["needs_review"] = False
+
         total_rules = len(df_results)
         actions = df_results["action"].value_counts()
-        repaired_count = actions.get("SUPPLEMENT", 0) + actions.get("POSSIBLE_MISMATCH", 0)
+        repaired_count = sum(actions.get(action, 0) for action in [
+            "ADD_CANDIDATE",
+            "REFINE_TO_SUBTECHNIQUE",
+            "COARSEN_TO_PARENT",
+            "REPLACE_SUSPECT",
+            "REMOVE_SUSPECT",
+            "SUPPLEMENT",
+            "POSSIBLE_MISMATCH",
+        ])
         avg_conf = df_results['confidence'].mean() * 100
-        
+        review_count = int(_review_mask(df_results).sum())
+        low_conf_count = int((df_results["confidence"] < confidence_th).sum())
+        summary = build_governance_summary(_records_from_df(df_results))
+
         # 自定义大屏 KPI 卡片
         st.markdown(f"""
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;">
@@ -399,14 +506,14 @@ elif view_mode == "🛰️ Enterprise Telemetry":
                 <div class="metric-delta neutral">Target: Sigma/Splunk</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Coverage Augmented</div>
+                <div class="metric-title">Governance Actions</div>
                 <div class="metric-value">{repaired_count:,}</div>
                 <div class="metric-delta positive">↑ {(repaired_count/total_rules)*100:.1f}% Impact</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Rules Retained</div>
-                <div class="metric-value">{actions.get('KEEP', 0):,}</div>
-                <div class="metric-delta neutral">Strict Alignment</div>
+                <div class="metric-title">Review Queue</div>
+                <div class="metric-value">{review_count:,}</div>
+                <div class="metric-delta neutral">Analyst Validation</div>
             </div>
             <div class="metric-card">
                 <div class="metric-title">Agent Confidence</div>
@@ -415,58 +522,210 @@ elif view_mode == "🛰️ Enterprise Telemetry":
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
-        col_chart1, col_chart2 = st.columns([1, 2])
-        
-        with col_chart1:
-            st.markdown("##### Action Matrix")
-            # 使用 Plotly 高级暗黑主题渲染
-            fig_pie = go.Figure(data=[go.Pie(
-                labels=actions.index, 
-                values=actions.values,
-                hole=0.6,
-                marker=dict(colors=['#3b82f6', '#10b981', '#f59e0b', '#64748b'],
-                            line=dict(color='#0b1120', width=2))
-            )])
-            fig_pie.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                margin=dict(t=0, b=0, l=0, r=0),
-                showlegend=True,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+
+        tab_overview, tab_rules, tab_review, tab_coverage, tab_export = st.tabs([
+            "Overview",
+            "Rule Governance",
+            "Review Queue",
+            "Coverage",
+            "Export",
+        ])
+
+        with tab_overview:
+            col_chart1, col_chart2 = st.columns([1, 2])
+
+            with col_chart1:
+                st.markdown("##### Action Matrix")
+                fig_pie = go.Figure(data=[go.Pie(
+                    labels=actions.index,
+                    values=actions.values,
+                    hole=0.6,
+                    marker=dict(colors=['#3b82f6', '#10b981', '#f59e0b', '#64748b', '#ef4444'],
+                                line=dict(color='#0b1120', width=2))
+                )])
+                fig_pie.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#94a3b8'),
+                    margin=dict(t=0, b=0, l=0, r=0),
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            with col_chart2:
+                st.markdown("##### Confidence Distribution")
+                fig_hist = px.histogram(df_results, x="confidence", nbins=12, color_discrete_sequence=['#10b981'])
+                fig_hist.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color='#94a3b8'),
+                    xaxis=dict(gridcolor='#1e293b', title="Confidence"),
+                    yaxis=dict(gridcolor='#1e293b', title="Rules"),
+                    margin=dict(t=10, b=0, l=0, r=0)
+                )
+                st.plotly_chart(fig_hist, use_container_width=True)
+
+            st.markdown("##### Governance Summary")
+            st.json(summary)
+
+        with tab_rules:
+            st.markdown("##### Rule Governance Workbench")
+            filter_cols = st.columns([1, 1, 1, 1])
+            with filter_cols[0]:
+                selected_sources = st.multiselect(
+                    "Source",
+                    sorted([s for s in df_results.get("source_type", pd.Series(dtype=str)).dropna().unique()]),
+                    default=sorted([s for s in df_results.get("source_type", pd.Series(dtype=str)).dropna().unique()]),
+                )
+            with filter_cols[1]:
+                selected_actions = st.multiselect(
+                    "Action",
+                    sorted([a for a in df_results["action"].dropna().unique()]),
+                    default=sorted([a for a in df_results["action"].dropna().unique()]),
+                )
+            with filter_cols[2]:
+                min_conf = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.05)
+            with filter_cols[3]:
+                review_only = st.checkbox("Review only", value=False)
+
+            filtered = df_results.copy()
+            if selected_sources and "source_type" in filtered.columns:
+                filtered = filtered[filtered["source_type"].isin(selected_sources)]
+            if selected_actions:
+                filtered = filtered[filtered["action"].isin(selected_actions)]
+            filtered = filtered[filtered["confidence"] >= min_conf]
+            if review_only:
+                filtered = filtered[_review_mask(filtered)]
+
+            display_cols = [
+                "rule_id", "title", "source_type", "action", "confidence",
+                "existing_attack_tags", "predicted_top1", "suggested_add_tags",
+                "suspect_remove_tags", "needs_review", "reason",
+            ]
+            display_cols = [col for col in display_cols if col in filtered.columns]
+            st.caption(f"Showing {len(filtered)} of {len(df_results)} rules. Low confidence below sidebar threshold: {low_conf_count}.")
+            st.dataframe(filtered[display_cols], use_container_width=True, hide_index=True)
+
+        with tab_review:
+            st.markdown("##### Analyst Review Queue")
+            review_df = df_results[_review_mask(df_results)].copy()
+            if review_df.empty:
+                st.success("No rules currently require analyst review.")
+            else:
+                review_df["review_label"] = review_df.apply(
+                    lambda row: f"{row.get('rule_id', 'unknown')} | {row.get('action', '')} | {row.get('title', '')}",
+                    axis=1,
+                )
+                selected_label = st.selectbox("Rule", review_df["review_label"].tolist())
+                selected_row = review_df[review_df["review_label"] == selected_label].iloc[0].to_dict()
+
+                detail_left, detail_right = st.columns([1, 1])
+                with detail_left:
+                    st.markdown("###### Rule")
+                    st.write("Rule ID:", selected_row.get("rule_id", ""))
+                    st.write("Title:", selected_row.get("title", ""))
+                    st.write("Source:", selected_row.get("source_type", ""))
+                    st.write("Action:", selected_row.get("action", ""))
+                    st.write("Confidence:", f"{float(selected_row.get('confidence', 0.0)):.2%}")
+                    st.write("Reason:", selected_row.get("reason", ""))
+                with detail_right:
+                    st.markdown("###### Tags")
+                    st.write("Existing:", _format_list_cell(selected_row.get("existing_attack_tags", [])))
+                    st.write("Predicted Top-3:", _format_list_cell(selected_row.get("predicted_top3", [])))
+                    st.write("Suggested Add:", _format_list_cell(selected_row.get("suggested_add_tags", [])))
+                    st.write("Suspect Remove:", _format_list_cell(selected_row.get("suspect_remove_tags", [])))
+
+                st.markdown("###### Evidence")
+                st.json({
+                    "score_breakdown": selected_row.get("score_breakdown", {}),
+                    "matched_data_sources": selected_row.get("matched_data_sources", []),
+                    "contradictions": selected_row.get("contradictions", []),
+                    "verification": selected_row.get("verification_reason", ""),
+                })
+
+                comment = st.text_area("Analyst comment", height=90)
+                btn_cols = st.columns(3)
+                with btn_cols[0]:
+                    if st.button("Accept Recommendation", use_container_width=True):
+                        save_row_review_feedback(selected_row, "accept", comment)
+                        st.success("Review feedback saved.")
+                with btn_cols[1]:
+                    if st.button("Reject Recommendation", use_container_width=True):
+                        save_row_review_feedback(selected_row, "reject", comment)
+                        st.success("Review feedback saved.")
+                with btn_cols[2]:
+                    if st.button("Needs More Context", use_container_width=True):
+                        save_row_review_feedback(selected_row, "needs_more_context", comment)
+                        st.success("Review feedback saved.")
+
+        with tab_coverage:
+            cov_left, cov_right = st.columns([1, 1])
+            with cov_left:
+                st.markdown("##### Tactic Density Profile")
+                if not df_tactic.empty:
+                    fig_bar = px.area(df_tactic, x="Key", y="Count", color_discrete_sequence=['#3b82f6'])
+                    fig_bar.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#94a3b8'),
+                        xaxis=dict(showgrid=False, title=""),
+                        yaxis=dict(gridcolor='#1e293b', title="Density"),
+                        margin=dict(t=10, b=0, l=0, r=0)
+                    )
+                    fig_bar.update_traces(mode='lines+markers', fill='tozeroy', marker=dict(size=8, color='#10b981'))
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("No tactic coverage CSV found.")
+
+            with cov_right:
+                st.markdown("##### Top Technique Signatures")
+                if not df_tech.empty:
+                    df_tech_sorted = df_tech.sort_values(by="Count", ascending=False).head(15)
+                    fig_tech = px.bar(df_tech_sorted, x="Count", y="Key", orientation='h', color="Count",
+                                      color_continuous_scale=px.colors.sequential.Tealgrn)
+                    fig_tech.update_layout(
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#94a3b8'),
+                        xaxis=dict(gridcolor='#1e293b', title="Signal Count"),
+                        yaxis=dict(showgrid=False, title="", autorange="reversed"),
+                        margin=dict(t=0, b=0, l=0, r=0),
+                        coloraxis_showscale=False
+                    )
+                    st.plotly_chart(fig_tech, use_container_width=True)
+                else:
+                    st.info("No technique coverage CSV found.")
+
+            st.markdown("##### Coverage Tables")
+            table_left, table_right = st.columns(2)
+            with table_left:
+                st.dataframe(df_tactic, use_container_width=True, hide_index=True)
+            with table_right:
+                st.dataframe(df_tech.sort_values(by="Count", ascending=False) if not df_tech.empty else df_tech, use_container_width=True, hide_index=True)
+
+        with tab_export:
+            st.markdown("##### Export Governance Report")
+            markdown = render_markdown_report(
+                _records_from_df(df_results),
+                df_tactic.to_dict(orient="records"),
+                df_tech.sort_values(by="Count", ascending=False).to_dict(orient="records") if not df_tech.empty else [],
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
-            
-        with col_chart2:
-            st.markdown("##### Tactic Density Profile")
-            fig_bar = px.area(df_tactic, x="Key", y="Count", color_discrete_sequence=['#3b82f6'])
-            fig_bar.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                xaxis=dict(showgrid=False, title=""),
-                yaxis=dict(gridcolor='#1e293b', title="Density"),
-                margin=dict(t=10, b=0, l=0, r=0)
+            report_path = os.path.join(config.OUTPUTS_DIR, "governance_report.md")
+            if st.button("Generate Markdown Report", use_container_width=True):
+                save_markdown_report(markdown, report_path)
+                st.success(f"Report saved to {report_path}")
+            st.download_button(
+                "Download Markdown Report",
+                data=markdown,
+                file_name="governance_report.md",
+                mime="text/markdown",
+                use_container_width=True,
             )
-            # 添加填充渐变和折线节点效果
-            fig_bar.update_traces(mode='lines+markers', fill='tozeroy', marker=dict(size=8, color='#10b981'))
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-        st.markdown("##### 🚨 Top Active Technique Signatures")
-        df_tech_sorted = df_tech.sort_values(by="Count", ascending=False).head(15)
-        fig_tech = px.bar(df_tech_sorted, x="Count", y="Key", orientation='h', color="Count",
-                          color_continuous_scale=px.colors.sequential.Tealgrn)
-        fig_tech.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='#94a3b8'),
-            xaxis=dict(gridcolor='#1e293b', title="Signal Count"),
-            yaxis=dict(showgrid=False, title="", autorange="reversed"),
-            margin=dict(t=0, b=0, l=0, r=0),
-            coloraxis_showscale=False
-        )
-        st.plotly_chart(fig_tech, use_container_width=True)
-        
+            st.text_area("Report Preview", markdown, height=420)
+
     else:
-        st.info("No enterprise telemetry data found. Run `python src/main.py` locally to populate the data warehouse.")
+        st.info(
+            "No enterprise telemetry data found. Run `python src/main.py` for real rule batches, "
+            "or run `python src/evaluation/run_gold_eval.py --write-telemetry` to generate the built-in gold-set demo data."
+        )

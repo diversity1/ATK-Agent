@@ -21,9 +21,14 @@ class SemanticExtractionAgent:
         prompt = f"""You are a cybersecurity detection-rule semantic extraction API.
 Extract the adversary behavior semantics from this detection rule.
 
+Rule source type: {parsed_rule.source_type}
+Rule query language: {parsed_rule.query_language}
 Rule title: {parsed_rule.title}
 Rule description: {parsed_rule.description}
 Log source: product={parsed_rule.product}, category={parsed_rule.category}, service={parsed_rule.service}
+Normalized telemetry: {parsed_rule.telemetry}
+Data components: {parsed_rule.data_components}
+Structured observables: {parsed_rule.observables[:20]}
 Detection indicators: {parsed_rule.detection_text}
 Existing ATT&CK tags: {parsed_rule.existing_attack_tags}
 
@@ -122,6 +127,8 @@ Output strict JSON only:
     @staticmethod
     def _infer_data_sources(parsed_rule: ParsedRule) -> List[str]:
         data_sources = []
+        data_sources.extend(getattr(parsed_rule, "telemetry", []) or [])
+        data_sources.extend(getattr(parsed_rule, "data_components", []) or [])
         category = (parsed_rule.category or "").lower()
         service = (parsed_rule.service or "").lower()
         if "process_creation" in category:
@@ -134,7 +141,14 @@ Output strict JSON only:
             data_sources.append("DNS")
         if "powershell" in service:
             data_sources.append("Script Execution")
-        return data_sources
+        seen = set()
+        deduped = []
+        for data_source in data_sources:
+            key = data_source.lower()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(data_source)
+        return deduped
 
     @staticmethod
     def _list_of_strings(value) -> List[str]:

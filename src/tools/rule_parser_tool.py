@@ -1,20 +1,31 @@
 import yaml
+import json
 from core.schemas import ParsedRule
+from parsers.base import ir_to_parsed_rule
+from parsers.registry import get_rule_adapter
 from tools.tag_validator_tool import is_valid_attack_tag, normalize_attack_tag
 
 def load_rule(path: str) -> dict:
     with open(path, 'r', encoding='utf-8') as f:
         if path.endswith('.yml') or path.endswith('.yaml'):
-            return yaml.safe_load(f)
-        return {}
+            data = yaml.safe_load(f)
+        elif path.endswith('.json'):
+            data = json.load(f)
+        elif path.endswith('.spl') or path.endswith('.txt'):
+            data = {"search": f.read()}
+        else:
+            return {}
+    if isinstance(data, dict):
+        data["_source_file"] = path
+    return data
 
 def extract_attack_tags(tags: list) -> list:
     if not tags:
         return []
     result = []
     for t in tags:
-        if is_valid_attack_tag(t):
-            result.append(normalize_attack_tag(t))
+        if is_valid_attack_tag(str(t)):
+            result.append(normalize_attack_tag(str(t)))
     return result
 
 
@@ -114,66 +125,10 @@ def build_normalized_rule_text(rule_dict: dict) -> str:
 
 
 def parse_sigma_rule(rule_dict: dict, file_path: str = "") -> ParsedRule:
-    rule_id     = rule_dict.get("id", "unknown_id")
-    title       = rule_dict.get("title", "")
-    description = str(rule_dict.get("description", "") or "")
-    logsource   = rule_dict.get("logsource", {}) or {}
-    product     = logsource.get("product", "")
-    category    = logsource.get("category", "")
-    service     = logsource.get("service", "")
-
-    raw_tags            = rule_dict.get("tags", []) or []
-    existing_attack_tags = extract_attack_tags(raw_tags)
-
-    detection      = rule_dict.get("detection", {})
-    detection_text = _extract_detection_keywords(detection)   # 使用富文本而非 str(dict)
-
-    normalized_rule_text = build_normalized_rule_text(rule_dict)
-
-    return ParsedRule(
-        rule_id=rule_id,
-        source_type="sigma",
-        source_file=file_path,
-        title=title,
-        description=description,
-        product=product,
-        category=category,
-        service=service,
-        detection_text=detection_text,
-        raw_tags=raw_tags,
-        existing_attack_tags=existing_attack_tags,
-        normalized_rule_text=normalized_rule_text
-    )
+    rule_ir = get_rule_adapter("sigma").parse(rule_dict, file_path)
+    return ir_to_parsed_rule(rule_ir)
 
 
 def parse_splunk_rule(rule_dict: dict, file_path: str = "") -> ParsedRule:
-    # Minimal stub for Splunk rules
-    title = rule_dict.get("name", "")
-    description = rule_dict.get("description", "")
-    rule_id = rule_dict.get("id", "unknown_id")
-    raw_tags = rule_dict.get("tags", {}).get("mitre_attack_id", [])
-    existing_attack_tags = extract_attack_tags(raw_tags)
-    
-    detection_text = rule_dict.get("search", "")
-    
-    parsed_fields = {
-        "title": title,
-        "description": description,
-        "detection_text": detection_text
-    }
-    normalized_rule_text = build_normalized_rule_text(parsed_fields)
-    
-    return ParsedRule(
-        rule_id=rule_id,
-        source_type="splunk",
-        source_file=file_path,
-        title=title,
-        description=description,
-        product="splunk",
-        category="",
-        service="",
-        detection_text=detection_text,
-        raw_tags=raw_tags if isinstance(raw_tags, list) else [raw_tags],
-        existing_attack_tags=existing_attack_tags,
-        normalized_rule_text=normalized_rule_text
-    )
+    rule_ir = get_rule_adapter("splunk").parse(rule_dict, file_path)
+    return ir_to_parsed_rule(rule_ir)

@@ -33,6 +33,22 @@ def _parse_tag_list(raw) -> set:
     return set()
 
 
+def _parse_tag_sequence(raw) -> list:
+    if isinstance(raw, list):
+        return [str(t).strip() for t in raw if str(t).strip()]
+    if isinstance(raw, str):
+        import ast
+        try:
+            lst = ast.literal_eval(raw)
+            if isinstance(lst, list):
+                return [str(t).strip() for t in lst if str(t).strip()]
+        except Exception:
+            pass
+        raw = raw.strip("[]").replace("'", "").replace('"', "")
+        return [t.strip() for t in raw.split(",") if t.strip()]
+    return []
+
+
 def precision_recall_f1_per_record(record: dict,
                                    pred_field: str = "predicted_top3",
                                    gold_field: str = "existing_attack_tags"
@@ -106,7 +122,7 @@ def compute_topk_accuracy(records: list, k: int = 1,
         gold = _parse_tag_list(r.get(gold_field, []))
         if not gold:
             continue
-        pred_list = list(_parse_tag_list(r.get(pred_field, [])))[:k]
+        pred_list = _parse_tag_sequence(r.get(pred_field, []))[:k]
         pred_set  = set(pred_list)
         if gold & pred_set:
             hits += 1
@@ -122,8 +138,8 @@ def compute_topk_accuracy(records: list, k: int = 1,
 def compute_repair_accuracy(records: list) -> dict:
     """
     评估修复行为（action）是否正确：
-      - 若原标签是空的而系统预测了标签 → SUPPLEMENT 才对
-      - 若原标签与预测一致             → KEEP 才对
+      - 若记录提供 expected_action / gold_action，则优先按人工期望动作评测
+      - 否则按新修复动作做启发式判断
     （此为启发式规则，不是绝对真值，仅供参考）
     """
     correct, total = 0, 0
@@ -132,7 +148,16 @@ def compute_repair_accuracy(records: list) -> dict:
         pred    = _parse_tag_list(r.get("predicted_top3", []))
         action  = r.get("action", "")
 
-        expected = "SUPPLEMENT" if (not gold or not (gold & pred)) else "KEEP"
+        expected = r.get("expected_action") or r.get("gold_action")
+        if not expected:
+            if not gold and pred:
+                expected = "ADD_CANDIDATE"
+            elif gold & pred:
+                expected = "KEEP"
+            elif gold and pred:
+                expected = "REPLACE_SUSPECT"
+            else:
+                expected = "ABSTAIN"
         if action == expected:
             correct += 1
         total += 1

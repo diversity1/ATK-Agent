@@ -1,6 +1,29 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
+class DetectionRuleIR(BaseModel):
+    rule_id: str
+    source_type: str
+    source_file: str = ""
+    query_language: str = ""
+    title: str = ""
+    description: str = ""
+    severity: str = ""
+    status: str = ""
+    product: str = ""
+    category: str = ""
+    service: str = ""
+    platforms: List[str] = Field(default_factory=list)
+    telemetry: List[str] = Field(default_factory=list)
+    data_components: List[str] = Field(default_factory=list)
+    observables: List[Dict[str, Any]] = Field(default_factory=list)
+    entities: List[str] = Field(default_factory=list)
+    detection_logic: Dict[str, Any] = Field(default_factory=dict)
+    raw_tags: List[str] = Field(default_factory=list)
+    existing_attack_tags: List[str] = Field(default_factory=list)
+    behavior_summary: str = ""
+    normalized_text: str = ""
+
 class ParsedRule(BaseModel):
     rule_id: str
     source_type: str  # sigma / splunk
@@ -14,6 +37,15 @@ class ParsedRule(BaseModel):
     raw_tags: List[str]
     existing_attack_tags: List[str]
     normalized_rule_text: str
+    query_language: str = ""
+    platforms: List[str] = Field(default_factory=list)
+    telemetry: List[str] = Field(default_factory=list)
+    data_components: List[str] = Field(default_factory=list)
+    observables: List[Dict[str, Any]] = Field(default_factory=list)
+    entities: List[str] = Field(default_factory=list)
+    detection_logic: Dict[str, Any] = Field(default_factory=dict)
+    behavior_summary: str = ""
+    rule_ir: Optional[DetectionRuleIR] = None
 
 class CandidateTechnique(BaseModel):
     technique_id: str
@@ -22,6 +54,10 @@ class CandidateTechnique(BaseModel):
     tactics: List[str]
     platforms: List[str]
     why: Dict[str, Any]
+    score_breakdown: Dict[str, float] = Field(default_factory=dict)
+    matched_observables: List[Dict[str, Any]] = Field(default_factory=list)
+    matched_data_sources: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
 
 class SemanticProfile(BaseModel):
     main_behavior: str = ""
@@ -49,6 +85,10 @@ class AlignmentResult(BaseModel):
     thought_process: Optional[Dict[str, str]] = None
     evidence_from_rule: List[str] = Field(default_factory=list)
     evidence_from_attack: List[str] = Field(default_factory=list)
+    score_breakdown: Dict[str, float] = Field(default_factory=dict)
+    matched_observables: List[Dict[str, Any]] = Field(default_factory=list)
+    matched_data_sources: List[str] = Field(default_factory=list)
+    contradictions: List[str] = Field(default_factory=list)
     abstain: bool
     ranking_mode: str
     retrieved_candidates: List[CandidateTechnique]

@@ -41,9 +41,14 @@ class VerificationAgent:
 Critically verify whether the selected ATT&CK technique is supported by the rule evidence.
 
 Rule:
+source_type={parsed_rule.source_type}
+query_language={parsed_rule.query_language}
 title={parsed_rule.title}
 description={parsed_rule.description}
 logsource=product:{parsed_rule.product}, category:{parsed_rule.category}, service:{parsed_rule.service}
+telemetry={parsed_rule.telemetry}
+data_components={parsed_rule.data_components}
+observables={parsed_rule.observables[:20]}
 detection={parsed_rule.detection_text}
 
 Semantic profile:
@@ -107,6 +112,8 @@ Output strict JSON only:
             semantic_profile.main_behavior,
             " ".join(semantic_profile.tools_or_binaries),
             " ".join(semantic_profile.required_data_sources),
+            " ".join(getattr(parsed_rule, "telemetry", []) or []),
+            " ".join(getattr(parsed_rule, "data_components", []) or []),
         ]).lower()
         doc_text = " ".join([
             top_doc.get("name", ""),

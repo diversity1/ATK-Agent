@@ -60,6 +60,12 @@ class ManagerAgent:
             "rule_id": "unknown",
             "source_file": "",
             "title": "",
+            "source_type": "",
+            "query_language": "",
+            "platforms": [],
+            "telemetry": [],
+            "data_components": [],
+            "entities": [],
             "existing_attack_tags": [],
             "predicted_top1": None,
             "predicted_top3": [],
@@ -82,7 +88,10 @@ class ManagerAgent:
             "verification_verdict": "",
             "verification_reason": "",
             "review_question": "",
-            "review_summary": ""
+            "review_summary": "",
+            "score_breakdown": {},
+            "matched_data_sources": [],
+            "contradictions": [],
         }
         
         if rule_state.parsed_rule:
@@ -91,6 +100,12 @@ class ManagerAgent:
                 "rule_id": p.rule_id,
                 "source_file": p.source_file,
                 "title": p.title,
+                "source_type": p.source_type,
+                "query_language": p.query_language,
+                "platforms": p.platforms,
+                "telemetry": p.telemetry,
+                "data_components": p.data_components,
+                "entities": p.entities[:20],
                 "existing_attack_tags": p.existing_attack_tags
             })
             
@@ -101,7 +116,10 @@ class ManagerAgent:
                 "predicted_top3": a.top3,
                 "confidence": a.confidence,
                 "abstain": a.abstain,
-                "ranking_mode": a.ranking_mode
+                "ranking_mode": a.ranking_mode,
+                "score_breakdown": a.score_breakdown,
+                "matched_data_sources": a.matched_data_sources,
+                "contradictions": a.contradictions,
             })
 
         if getattr(rule_state, "semantic_profile", None):

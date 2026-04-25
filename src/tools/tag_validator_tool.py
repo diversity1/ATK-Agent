@@ -22,7 +22,7 @@ def check_parent_child_relation(tag_a: str, tag_b: str) -> bool:
 
 def compare_existing_and_predicted(existing_tags: list, predicted_topk: list) -> dict:
     existing = set(normalize_attack_tag(t) for t in existing_tags if is_valid_attack_tag(t))
-    predicted = set(predicted_topk)
+    predicted = set(normalize_attack_tag(t) for t in predicted_topk if is_valid_attack_tag(t))
     
     exact_matches = existing.intersection(predicted)
     missing_in_predicted = existing - predicted
@@ -40,6 +40,17 @@ def compare_existing_and_predicted(existing_tags: list, predicted_topk: list) ->
         "new_in_predicted": list(new_in_predicted),
         "parent_child_matches": parent_child_matches
     }
+
+def get_parent_technique(tag: str) -> str:
+    if not is_valid_attack_tag(tag):
+        return ""
+    normalized = normalize_attack_tag(tag)
+    if "." not in normalized:
+        return normalized
+    return normalized.split(".", 1)[0]
+
+def is_subtechnique(tag: str) -> bool:
+    return is_valid_attack_tag(tag) and "." in normalize_attack_tag(tag)
 
 def compute_mismatch_score(existing_tags: list, predicted_topk: list) -> float:
     comp = compare_existing_and_predicted(existing_tags, predicted_topk)
